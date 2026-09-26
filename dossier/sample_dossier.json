@@ -1,0 +1,104 @@
+{
+  "product": "demo_product",
+  "scanned_at": "2026-09-26T18:52:29Z",
+  "duration_s": 4.7,
+  "summary": {
+    "advisories": 4,
+    "affected": 1,
+    "not_affected": 2,
+    "under_investigation": 1,
+    "emergency_releases_avoided": 2
+  },
+  "clock": {
+    "cve": "CVE-2020-14343",
+    "aware_at": "2026-09-26T15:53:29Z",
+    "early_warning_due": "2026-09-27T15:53:29Z",
+    "notification_due": "2026-09-29T15:53:29Z",
+    "final_report_due": "2026-10-10T15:53:29Z"
+  },
+  "findings": [
+    {
+      "cve": "CVE-2020-14343",
+      "package": "PyYAML",
+      "installed": "5.3.1",
+      "affected_range": "<5.4",
+      "fixed_version": "5.4",
+      "symbols": [
+        "full_load"
+      ],
+      "status": "affected",
+      "justification": null,
+      "evidence": [
+        {
+          "file": "demo_product/app.py",
+          "line": 14,
+          "function": "upload_config",
+          "call": "config.load_settings"
+        },
+        {
+          "file": "demo_product/config.py",
+          "line": 5,
+          "function": "load_settings",
+          "call": "yaml.full_load"
+        }
+      ],
+      "reason": "yaml.full_load is reachable from route /upload-config via upload_config -> load_settings",
+      "advisory_source": "https://github.com/advisories/GHSA-8q59-q68h-6hv4",
+      "drafts": [
+        "out/drafts/early_warning_CVE-2020-14343.md",
+        "out/drafts/notification_CVE-2020-14343.md"
+      ]
+    },
+    {
+      "cve": "CVE-2023-50447",
+      "package": "Pillow",
+      "installed": "9.5.0",
+      "affected_range": "<10.2.0",
+      "fixed_version": "10.2.0",
+      "symbols": [
+        "PIL.ImageMath.eval"
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "evidence": [],
+      "reason": "No path from any entry point reaches PIL.ImageMath.eval",
+      "advisory_source": "https://github.com/advisories/GHSA-3f63-hfp8-52jq",
+      "drafts": []
+    },
+    {
+      "cve": "CVE-2024-22195",
+      "package": "Jinja2",
+      "installed": "3.1.2",
+      "affected_range": "<3.1.3",
+      "fixed_version": "3.1.3",
+      "symbols": [
+        "xmlattr"
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "evidence": [],
+      "reason": "No path from any entry point reaches xmlattr",
+      "advisory_source": "https://github.com/advisories/GHSA-h5c8-rqwp-cp95",
+      "drafts": []
+    },
+    {
+      "cve": "CVE-2023-32681",
+      "package": "requests",
+      "installed": "2.30.0",
+      "affected_range": ">=2.3.0,<2.31.0",
+      "fixed_version": "2.31.0",
+      "symbols": [],
+      "status": "under_investigation",
+      "justification": null,
+      "evidence": [],
+      "reason": "Leak requires proxies configured at runtime; static analysis cannot prove absence",
+      "advisory_source": "https://github.com/advisories/GHSA-j8r2-6x86-q33q",
+      "drafts": []
+    }
+  ],
+  "coverage": {
+    "files_found": 3,
+    "files_parsed": 3
+  },
+  "vex_path": "out/vex.json"
+}

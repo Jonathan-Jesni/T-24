@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>T-24 — CRA Vulnerability Dossier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:          #0d0f14;
+    --surface:     #141720;
+    --surface2:    #1c2030;
+    --border:      #272d3d;
+    --border2:     #323a52;
+    --text:        #e2e6f0;
+    --muted:       #7b8299;
+    --accent:      #4f8ef7;
+    --accent-dim:  #1e3a6e;
+    --green:       #22c55e;
+    --green-dim:   #14532d;
+    --amber:       #f59e0b;
+    --amber-dim:   #451a03;
+    --red:         #ef4444;
+    --red-dim:     #450a0a;
+    --blue:        #3b82f6;
+    --blue-dim:    #1e3a8a;
+    --purple:      #a855f7;
+    --ring-size:   88px;
+    --font-mono:   'JetBrains Mono', monospace;
+    --font-sans:   'Inter', system-ui, sans-serif;
+    --radius:      10px;
+    --radius-sm:   6px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 15px; scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+  #source-badge {
+    position: fixed;
+    top: 12px; right: 16px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 3px 10px;
+    border-radius: 20px;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    color: var(--muted);
+    z-index: 100;
+    transition: all 0.3s;
+  }
+  #source-badge.live  { color: var(--green); border-color: var(--green); }
+  #source-badge.demo  { color: var(--amber); border-color: var(--amber); }
+  #source-badge.embed { color: var(--muted); border-color: var(--border2); }
+
+  /* Header */
+  .header { padding: 48px 0 36px; border-bottom: 1px solid var(--border); }
+  .header-inner {
+    display: flex; align-items: flex-start;
+    justify-content: space-between; gap: 24px; flex-wrap: wrap;
+  }
+  .wordmark {
+    font-size: 52px; font-weight: 900;
+    letter-spacing: -2px; line-height: 1;
+    background: linear-gradient(135deg, #ffffff 0%, var(--accent) 60%, var(--purple) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .tagline { font-size: 13px; color: var(--muted); margin-top: 4px; letter-spacing: 0.03em; }
+  .header-meta { text-align: right; }
+  .header-product { font-size: 17px; font-weight: 600; color: var(--text); }
+  .header-detail { font-size: 12px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono); }
+  .triage-pill {
+    display: inline-block; margin-top: 8px;
+    font-size: 12px; background: var(--accent-dim); color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 20px;
+    padding: 2px 12px; font-weight: 500;
+  }
+
+  .section-title {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 16px; padding-top: 40px;
+  }
+
+  /* CRA clock */
+  .cra-timers {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+  }
+  @media (max-width: 640px) { .cra-timers { grid-template-columns: 1fr; } }
+
+  .timer-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 24px 20px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    transition: border-color 0.5s, background 0.5s;
+    position: relative; overflow: hidden;
+  }
+  .timer-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--timer-accent, var(--accent)); opacity: 0.7;
+  }
+  .timer-card.calm   { --timer-accent: var(--green); }
+  .timer-card.amber  { --timer-accent: var(--amber); border-color: #3d2a00; background: #0f0c00; }
+  .timer-card.danger { --timer-accent: var(--red);   border-color: #3d0000; background: #0f0000; }
+  .timer-card.overdue { --timer-accent: var(--red);  border-color: var(--red); background: var(--red-dim); }
+
+  .timer-label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .ring-wrap { position: relative; width: var(--ring-size); height: var(--ring-size); }
+  .ring-wrap svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring-bg  { fill: none; stroke: var(--border2); stroke-width: 6; }
+  .ring-fg  { fill: none; stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 0.9s ease, stroke 0.5s; }
+  .ring-text {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+    color: var(--muted); text-align: center; gap: 1px; line-height: 1.2;
+  }
+  .ring-text .hh { font-size: 16px; font-weight: 700; color: var(--text); }
+  .timer-countdown {
+    font-family: var(--font-mono); font-size: 28px; font-weight: 700;
+    letter-spacing: -1px; color: var(--text);
+  }
+  .timer-countdown.overdue-text { color: var(--red); font-size: 18px; }
+  .timer-due  { font-size: 11px; color: var(--muted); text-align: center; }
+  .timer-article { font-size: 10px; color: var(--muted); font-style: italic; }
+
+  .no-clock-panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 28px 24px;
+    display: flex; align-items: center; gap: 16px; color: var(--muted);
+  }
+  .no-clock-icon { font-size: 28px; flex-shrink: 0; }
+  .no-clock-text strong { color: var(--text); display: block; font-size: 15px; margin-bottom: 4px; }
+
+  /* Summary */
+  .summary-strip {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 4px;
+  }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 16px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .stat-card.hero { border-color: var(--green); background: rgba(34,197,94,0.05); }
+  .stat-value { font-size: 32px; font-weight: 900; font-family: var(--font-mono); line-height: 1; color: var(--text); }
+  .stat-card.hero .stat-value { color: var(--green); }
+  .stat-label { font-size: 11px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.07em; }
+
+  /* Finding cards */
+  .findings-list { display: flex; flex-direction: column; gap: 16px; margin-top: 4px; }
+  .finding-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+    opacity: 0; transform: translateY(16px);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+  .finding-card.visible { opacity: 1; transform: translateY(0); }
+  .finding-card.status-affected          { border-left: 3px solid var(--red); }
+  .finding-card.status-not_affected      { border-left: 3px solid var(--green); }
+  .finding-card.status-under_investigation { border-left: 3px solid var(--amber); }
+  .finding-card.status-fixed             { border-left: 3px solid var(--blue); }
+
+  .finding-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid var(--border);
+  }
+  .finding-cve { font-family: var(--font-mono); font-size: 16px; font-weight: 600; color: var(--text); }
+  .finding-pkg { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .finding-pkg strong { color: var(--text); }
+  .finding-header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; padding: 3px 10px; border-radius: 20px; white-space: nowrap;
+  }
+  .badge-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .badge.affected             { background: var(--red-dim);   color: var(--red); }
+  .badge.affected .badge-dot  { background: var(--red); }
+  .badge.not_affected              { background: var(--green-dim); color: var(--green); }
+  .badge.not_affected .badge-dot   { background: var(--green); }
+  .badge.under_investigation        { background: var(--amber-dim); color: var(--amber); }
+  .badge.under_investigation .badge-dot { background: var(--amber); }
+  .badge.fixed                { background: var(--blue-dim);  color: var(--blue); }
+  .badge.fixed .badge-dot     { background: var(--blue); }
+
+  .finding-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+
+  .version-row { display: flex; gap: 20px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 12px; }
+  .version-item { display: flex; flex-direction: column; gap: 2px; }
+  .version-key  { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .version-val  { color: var(--text); font-weight: 500; }
+  .version-val.bad  { color: var(--red); }
+  .version-val.good { color: var(--green); }
+
+  .reason-row { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .reason-row strong { color: var(--text); }
+
+  .justification-pill {
+    display: inline-block; font-size: 11px; font-family: var(--font-mono);
+    color: var(--green); background: var(--green-dim);
+    border: 1px solid #166534; border-radius: var(--radius-sm); padding: 2px 8px;
+  }
+
+  /* Evidence chain */
+  .evidence-block {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); overflow: hidden;
+  }
+  .evidence-title {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--muted); padding: 8px 14px; border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .evidence-chain { padding: 14px; display: flex; flex-direction: column; gap: 0; }
+  .hop {
+    display: flex; align-items: flex-start; gap: 10px;
+    opacity: 0; transform: translateX(-10px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  .hop.visible { opacity: 1; transform: translateX(0); }
+  .hop-line { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; padding-top: 2px; }
+  .hop-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .hop-dot.last { background: var(--red); }
+  .hop-connector {
+    width: 2px; flex: 1; min-height: 20px;
+    background: linear-gradient(to bottom, var(--accent), var(--border2));
+    opacity: 0.5; margin: 3px 0;
+  }
+  .hop-content { padding-bottom: 16px; flex: 1; min-width: 0; }
+  .hop-file { font-family: var(--font-mono); font-size: 11px; color: var(--accent); word-break: break-all; }
+  .hop-func { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--text); margin-top: 1px; }
+  .hop-call { font-family: var(--font-mono); font-size: 12px; color: var(--amber); margin-top: 2px; }
+  .hop-call::before { content: '\21B3 calls '; color: var(--muted); font-size: 10px; }
+  .no-evidence-note { font-size: 12px; color: var(--muted); font-style: italic; padding: 10px 14px; }
+
+  /* Symbols */
+  .symbols-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .symbol-key { font-size: 11px; color: var(--muted); }
+  .symbol-chip {
+    font-family: var(--font-mono); font-size: 11px;
+    background: var(--surface2); border: 1px solid var(--border2);
+    color: var(--text); padding: 2px 8px; border-radius: 4px;
+  }
+
+  .advisory-link { font-size: 12px; color: var(--muted); }
+
+  .drafts-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--muted); }
+  .draft-link {
+    font-family: var(--font-mono); font-size: 11px; color: var(--accent);
+    background: var(--accent-dim); border: 1px solid #1e3a6e; padding: 2px 8px; border-radius: 4px;
+  }
+
+  /* Downloads */
+  .downloads-section {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+    display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+  }
+  .download-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; font-weight: 500; color: var(--accent);
+    background: var(--accent-dim); border: 1px solid var(--accent);
+    border-radius: var(--radius-sm); padding: 8px 16px;
+    cursor: pointer; transition: background 0.2s, color 0.2s; text-decoration: none;
+  }
+  .download-btn:hover { background: var(--accent); color: #fff; text-decoration: none; }
+  .downloads-label { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+
+  /* Footer */
+  .footer {
+    margin-top: 64px; padding: 24px 0 32px;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  }
+  .footer-note { font-size: 12px; color: var(--muted); max-width: 600px; line-height: 1.5; }
+  .footer-note strong { color: var(--text); }
+  .footer-brand { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+
+  @keyframes fadeSlideUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .anim-in { animation: fadeSlideUp 0.4s ease both; }
+</style>
+</head>
+<body>
+
+<div id="source-badge">loading&#8230;</div>
+
+<div class="container">
+
+  <header class="header anim-in">
+    <div class="header-inner">
+      <div>
+        <div class="wordmark">T-24</div>
+        <div class="tagline">Prove whether you&#8217;re affected before the CRA clock runs out.</div>
+      </div>
+      <div class="header-meta">
+        <div class="header-product" id="hdr-product">&#8212;</div>
+        <div class="header-detail" id="hdr-scanned">&#8212;</div>
+        <div class="triage-pill" id="hdr-triage">&#8212;</div>
+      </div>
+    </div>
+  </header>
+
+  <section class="cra-panel">
+    <div class="section-title">CRA ENISA Deadline Clock</div>
+    <div id="cra-content"></div>
+  </section>
+
+  <section>
+    <div class="section-title">Scan Summary</div>
+    <div class="summary-strip" id="summary-strip"></div>
+  </section>
+
+  <section>
+    <div class="section-title">Findings</div>
+    <div class="findings-list" id="findings-list"></div>
+  </section>
+
+  <section>
+    <div class="section-title">Downloads</div>
+    <div class="downloads-section" id="downloads-section">
+      <span class="downloads-label">Downloads</span>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="footer-note" id="footer-note">
+      <strong>Verdicts are decided by deterministic code analysis.</strong>
+      The AI only reads advisories &#8212; it never sets a VEX status.
+      Every evidence path cites a real source file and line number.
+    </div>
+    <div class="footer-brand">T-24 / IBM Bob 2.0 Hackathon</div>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var EMBEDDED = {"product":"demo_product","scanned_at":"2026-09-26T18:52:29Z","duration_s":4.7,"summary":{"advisories":4,"affected":1,"not_affected":2,"under_investigation":1,"emergency_releases_avoided":2},"clock":{"cve":"CVE-2020-14343","aware_at":"2026-09-26T15:53:29Z","early_warning_due":"2026-09-27T15:53:29Z","notification_due":"2026-09-29T15:53:29Z","final_report_due":"2026-10-10T15:53:29Z"},"findings":[{"cve":"CVE-2020-14343","package":"PyYAML","installed":"5.3.1","affected_range":"<5.4","fixed_version":"5.4","symbols":["full_load"],"status":"affected","justification":null,"evidence":[{"file":"demo_product/app.py","line":14,"function":"upload_config","call":"config.load_settings"},{"file":"demo_product/config.py","line":5,"function":"load_settings","call":"yaml.full_load"}],"reason":"yaml.full_load is reachable from route /upload-config via upload_config -> load_settings","advisory_source":"https://github.com/advisories/GHSA-8q59-q68h-6hv4","drafts":["out/drafts/early_warning_CVE-2020-14343.md","out/drafts/notification_CVE-2020-14343.md"]},{"cve":"CVE-2023-50447","package":"Pillow","installed":"9.5.0","affected_range":"<10.2.0","fixed_version":"10.2.0","symbols":["PIL.ImageMath.eval"],"status":"not_affected","justification":"vulnerable_code_not_in_execute_path","evidence":[],"reason":"No path from any entry point reaches PIL.ImageMath.eval","advisory_source":"https://github.com/advisories/GHSA-3f63-hfp8-52jq","drafts":[]},{"cve":"CVE-2024-22195","package":"Jinja2","installed":"3.1.2","affected_range":"<3.1.3","fixed_version":"3.1.3","symbols":["xmlattr"],"status":"not_affected","justification":"vulnerable_code_not_in_execute_path","evidence":[],"reason":"No path from any entry point reaches xmlattr","advisory_source":"https://github.com/advisories/GHSA-h5c8-rqwp-cp95","drafts":[]},{"cve":"CVE-2023-32681","package":"requests","installed":"2.30.0","affected_range":">=2.3.0,<2.31.0","fixed_version":"2.31.0","symbols":[],"status":"under_investigation","justification":null,"evidence":[],"reason":"Leak requires proxies configured at runtime; static analysis cannot prove absence","advisory_source":"https://github.com/advisories/GHSA-j8r2-6x86-q33q","drafts":[]}],"coverage":{"files_found":3,"files_parsed":3},"vex_path":"out/vex.json"};
+
+  function loadData() {
+    var badge = document.getElementById('source-badge');
+    // Try live out/dossier.json
+    return fetch('../out/dossier.json', {cache:'no-cache'})
+      .then(function(r){ if(!r.ok) throw new Error(); return r.json(); })
+      .then(function(d){ badge.textContent='● live: out/dossier.json'; badge.className='live'; return d; })
+      .catch(function(){
+        // Try sample
+        return fetch('./sample_dossier.json', {cache:'no-cache'})
+          .then(function(r){ if(!r.ok) throw new Error(); return r.json(); })
+          .then(function(d){ badge.textContent='● demo: sample_dossier.json'; badge.className='demo'; return d; })
+          .catch(function(){
+            badge.textContent='● embedded fallback'; badge.className='embed';
+            return Promise.resolve(EMBEDDED);
+          });
+      });
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function fmtDate(iso) {
+    try {
+      return new Date(iso).toLocaleString('en-GB',{
+        year:'numeric',month:'short',day:'numeric',
+        hour:'2-digit',minute:'2-digit',timeZoneName:'short',timeZone:'UTC'
+      });
+    } catch(e){ return iso; }
+  }
+
+  function fmtDuration(s) {
+    return s < 60 ? s.toFixed(1)+'s' : (s/60).toFixed(1)+'m';
+  }
+
+  function renderHeader(d) {
+    document.getElementById('hdr-product').textContent = d.product;
+    document.getElementById('hdr-scanned').textContent = fmtDate(d.scanned_at);
+    document.getElementById('hdr-triage').textContent =
+      'Triaged '+d.summary.advisories+' advisories in '+fmtDuration(d.duration_s);
+    document.title = 'T-24 \u2014 '+d.product;
+  }
+
+  var CIRCUMFERENCE = 2 * Math.PI * 38;
+
+  var TIMER_DEFS = [
+    { key:'early_warning_due', label:'Early Warning',  article:'CRA Art.\u00a014\u00a0\u00a71', totalH:24 },
+    { key:'notification_due',  label:'Notification',   article:'CRA Art.\u00a014\u00a0\u00a72', totalH:72 },
+    { key:'final_report_due',  label:'Final Report',   article:'CRA Art.\u00a014\u00a0\u00a73', totalH:14*24 }
+  ];
+
+  function timerState(secLeft, totalSec) {
+    var pct = Math.max(0, secLeft / totalSec);
+    if (secLeft <= 0)  return {cls:'overdue', color:'var(--red)',   pct:0};
+    if (pct <= 0.15)   return {cls:'danger',  color:'var(--red)',   pct:pct};
+    if (pct <= 0.35)   return {cls:'amber',   color:'var(--amber)', pct:pct};
+    return                    {cls:'calm',    color:'var(--green)', pct:pct};
+  }
+
+  function fmtCountdown(sec) {
+    if (sec <= 0) return 'OVERDUE';
+    var d = Math.floor(sec/86400);
+    var h = Math.floor((sec%86400)/3600);
+    var m = Math.floor((sec%3600)/60);
+    var s = sec%60;
+    function pad(n){ return n<10?'0'+n:String(n); }
+    if (d > 0) return d+'d '+pad(h)+'h '+pad(m)+'m';
+    return pad(h)+':'+pad(m)+':'+pad(s);
+  }
+
+  var timerIntervals = [];
+
+  function renderClock(clock) {
+    var el = document.getElementById('cra-content');
+    if (!clock) {
+      el.innerHTML = '<div class="no-clock-panel"><div class="no-clock-icon">\u2713</div>'
+        +'<div class="no-clock-text"><strong>No actively exploited finding. No ENISA report due.</strong>'
+        +'Pass <code>--actively-exploited CVE-XXXX-XXXXX=&lt;ISO8601&gt;</code> to activate the CRA clock.</div></div>';
+      return;
+    }
+
+    var metaHtml = '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;">'
+      +'CVE: <strong style="color:var(--text);font-family:var(--font-mono)">'+esc(clock.cve)+'</strong>'
+      +' &nbsp;|&nbsp; Aware at: <span style="font-family:var(--font-mono)">'+fmtDate(clock.aware_at)+'</span></div>';
+    el.innerHTML = metaHtml + '<div class="cra-timers" id="cra-timers-grid"></div>';
+
+    var grid = document.getElementById('cra-timers-grid');
+
+    TIMER_DEFS.forEach(function(t, i) {
+      var dueMs  = new Date(clock[t.key]).getTime();
+      var totalSec = t.totalH * 3600;
+      var id = 'timer-'+i;
+
+      var card = document.createElement('div');
+      card.className = 'timer-card';
+      card.id = id;
+      card.innerHTML = '<div class="timer-label">'+esc(t.label)+'</div>'
+        +'<div class="ring-wrap"><svg viewBox="0 0 88 88">'
+        +'<circle class="ring-bg" cx="44" cy="44" r="38"/>'
+        +'<circle class="ring-fg" id="'+id+'-ring" cx="44" cy="44" r="38"'
+        +' stroke-dasharray="'+CIRCUMFERENCE+'" stroke-dashoffset="'+CIRCUMFERENCE+'" stroke="var(--green)"/>'
+        +'</svg><div class="ring-text"><span class="hh" id="'+id+'-pct">\u2026</span><span>left</span></div></div>'
+        +'<div class="timer-countdown" id="'+id+'-cd">\u2026</div>'
+        +'<div class="timer-due">Due: '+fmtDate(clock[t.key])+'</div>'
+        +'<div class="timer-article">'+esc(t.article)+'</div>';
+      grid.appendChild(card);
+
+      function tick() {
+        var now = Date.now();
+        var secLeft = Math.max(0, Math.floor((dueMs - now) / 1000));
+        var st = timerState(secLeft, totalSec);
+        card.className = 'timer-card '+st.cls;
+        var ring = document.getElementById(id+'-ring');
+        ring.style.stroke = st.color;
+        ring.style.strokeDashoffset = CIRCUMFERENCE * (1 - st.pct);
+        document.getElementById(id+'-pct').textContent = Math.round(st.pct*100)+'%';
+        var cdEl = document.getElementById(id+'-cd');
+        if (secLeft <= 0) {
+          cdEl.className = 'timer-countdown overdue-text';
+          cdEl.textContent = 'OVERDUE';
+        } else {
+          cdEl.className = 'timer-countdown';
+          cdEl.textContent = fmtCountdown(secLeft);
+        }
+      }
+      tick();
+      timerIntervals.push(setInterval(tick, 1000));
+    });
+  }
+
+  function renderSummary(s) {
+    var el = document.getElementById('summary-strip');
+    var items = [
+      {v:s.advisories,           l:'Advisories',          hero:false},
+      {v:s.affected,             l:'Affected',             hero:false},
+      {v:s.not_affected,         l:'Not Affected',         hero:false},
+      {v:s.under_investigation,  l:'Under Investigation',  hero:false},
+      {v:s.emergency_releases_avoided, l:'Emergency Releases\u00a0Avoided', hero:true}
+    ];
+    el.innerHTML = items.map(function(item){
+      return '<div class="stat-card'+(item.hero?' hero':'')+'"><div class="stat-value">'+item.v+'</div>'
+             +'<div class="stat-label">'+esc(item.l)+'</div></div>';
+    }).join('');
+  }
+
+  function renderEvidence(evidence, symbols, status) {
+    if (!evidence || evidence.length === 0) {
+      if (status === 'not_affected' && symbols && symbols.length > 0) {
+        return '<div class="evidence-block"><div class="evidence-title">Evidence Path</div>'
+          +'<div class="no-evidence-note">No path from any entry point reaches '
+          +'<code>'+symbols.map(esc).join(', ')+'</code>.</div></div>';
+      }
+      return '';
+    }
+    var hops = evidence.map(function(hop, i){
+      var isLast = i === evidence.length - 1;
+      var connector = isLast ? '' : '<div class="hop-connector"></div>';
+      return '<div class="hop" data-hop="'+i+'">'
+        +'<div class="hop-line"><div class="hop-dot'+(isLast?' last':'')+'"></div>'+connector+'</div>'
+        +'<div class="hop-content">'
+        +'<div class="hop-file">'+esc(hop.file)+':'+hop.line+'</div>'
+        +'<div class="hop-func">'+esc(hop.function)+'</div>'
+        +'<div class="hop-call">'+esc(hop.call)+'</div>'
+        +'</div></div>';
+    }).join('');
+    return '<div class="evidence-block"><div class="evidence-title">Evidence Path \u2014 '
+      +evidence.length+' hop'+(evidence.length!==1?'s':'')+'</div>'
+      +'<div class="evidence-chain">'+hops+'</div></div>';
+  }
+
+  function renderFinding(f, idx) {
+    var statusLabels = {
+      affected:'Affected', not_affected:'Not Affected',
+      under_investigation:'Under Investigation', fixed:'Fixed'
+    };
+    var statusLabel = statusLabels[f.status] || f.status;
+
+    var symbolsHtml = (f.symbols && f.symbols.length > 0)
+      ? '<div class="symbols-row"><span class="symbol-key">Symbols:</span>'
+        + f.symbols.map(function(s){ return '<span class="symbol-chip">'+esc(s)+'</span>'; }).join('')
+        + '</div>'
+      : '';
+
+    var justHtml = f.justification
+      ? '<div><span class="justification-pill">'+esc(f.justification)+'</span></div>'
+      : '';
+
+    var evHtml = renderEvidence(f.evidence, f.symbols, f.status);
+
+    var draftsHtml = (f.drafts && f.drafts.length > 0)
+      ? '<div class="drafts-row"><span>Draft reports:</span>'
+        + f.drafts.map(function(p){
+            var name = p.split('/').pop();
+            return '<a class="draft-link" href="../'+esc(p)+'">'+esc(name)+'</a>';
+          }).join('') + '</div>'
+      : '';
+
+    return '<div class="finding-card status-'+esc(f.status)+'" style="transition-delay:'+idx*80+'ms">'
+      +'<div class="finding-header"><div>'
+      +'<div class="finding-cve">'+esc(f.cve)+'</div>'
+      +'<div class="finding-pkg"><strong>'+esc(f.package)+'</strong></div>'
+      +'</div><div class="finding-header-right">'
+      +'<span class="badge '+esc(f.status)+'"><span class="badge-dot"></span>'+statusLabel+'</span>'
+      +'</div></div>'
+      +'<div class="finding-body">'
+      +'<div class="version-row">'
+      +'<div class="version-item"><span class="version-key">Installed</span><span class="version-val bad">'+esc(f.installed)+'</span></div>'
+      +'<div class="version-item"><span class="version-key">Affected Range</span><span class="version-val">'+esc(f.affected_range)+'</span></div>'
+      +'<div class="version-item"><span class="version-key">Fixed In</span><span class="version-val good">'+esc(f.fixed_version)+'</span></div>'
+      +'</div>'
+      +symbolsHtml
+      +'<div class="reason-row">'+esc(f.reason)+'</div>'
+      +justHtml+evHtml+draftsHtml
+      +'<div class="advisory-link">Advisory: <a href="'+esc(f.advisory_source)+'" target="_blank" rel="noopener">'+esc(f.advisory_source)+'</a></div>'
+      +'</div></div>';
+  }
+
+  function renderFindings(findings) {
+    document.getElementById('findings-list').innerHTML =
+      findings.map(function(f,i){ return renderFinding(f,i); }).join('');
+  }
+
+  function renderDownloads(d) {
+    var el = document.getElementById('downloads-section');
+    var btns = [];
+    var icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+    if (d.vex_path) {
+      btns.push('<a class="download-btn" href="../'+esc(d.vex_path)+'">'+icon+' vex.json</a>');
+    }
+    d.findings.forEach(function(f){
+      (f.drafts||[]).forEach(function(p){
+        var name = p.split('/').pop();
+        btns.push('<a class="download-btn" href="../'+esc(p)+'">'+icon+' '+esc(name)+'</a>');
+      });
+    });
+    el.innerHTML = '<span class="downloads-label">Downloads</span>'+btns.join('');
+  }
+
+  function renderCoverage(coverage) {
+    if (!coverage) return;
+    var note = document.getElementById('footer-note');
+    var span = document.createElement('div');
+    span.style.cssText = 'margin-top:6px;font-size:11px;color:var(--muted);font-family:var(--font-mono)';
+    span.textContent = 'Coverage: '+coverage.files_parsed+' / '+coverage.files_found+' files parsed';
+    note.appendChild(span);
+  }
+
+  function setupAnimations() {
+    if (!window.IntersectionObserver) {
+      document.querySelectorAll('.finding-card,.hop').forEach(function(el){ el.classList.add('visible'); });
+      return;
+    }
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if (e.isIntersecting) {
+          e.target.classList.add('visible');
+          var hops = e.target.querySelectorAll('.hop');
+          hops.forEach(function(hop, i){
+            setTimeout(function(){ hop.classList.add('visible'); }, 120 + i*100);
+          });
+          io.unobserve(e.target);
+        }
+      });
+    }, {threshold:0.05});
+    document.querySelectorAll('.finding-card').forEach(function(c){ io.observe(c); });
+  }
+
+  loadData().then(function(d){
+    renderHeader(d);
+    renderClock(d.clock);
+    renderSummary(d.summary);
+    renderFindings(d.findings);
+    renderDownloads(d);
+    renderCoverage(d.coverage);
+    requestAnimationFrame(function(){ setupAnimations(); });
+  });
+
+})();
+</script>
+</body>
+</html>

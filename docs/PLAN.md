@@ -26,17 +26,15 @@ affected and actively exploited, drafts the required ENISA reports automatically
 
 ## 1. Verified Advisory Facts
 
-> Source: GitHub Advisory Database (CC-BY-4.0). Used in demo_product/.
+> Source: GitHub Advisory Database (CC-BY-4.0). Fetched via
+> `curl -s https://api.github.com/advisories/<GHSA_ID>`. Used in demo_product/.
 
 | CVE | GHSA | Package | Installed | Affected range | Fixed | Vulnerable symbol | Expected verdict |
 |-----|------|---------|-----------|----------------|-------|-------------------|-----------------|
-| CVE-2020-14343 | GHSA-8q59-q68h-6hv4 | PyYAML | 5.3.1 | <5.4 | 5.4 | `full_load`, `FullLoader` | AFFECTED |
-| CVE-2023-50447 | GHSA-2jpm-f686-3f3r | Pillow | 9.5.0 | <10.1.0 | 10.1.0 | `PIL.ImageMath.eval` | NOT_AFFECTED (not in execute path) |
-| CVE-2024-22195 | GHSA-g3fm-fvfm-84f7 | Jinja2 | 3.1.2 | <3.1.3 | 3.1.3 | `xmlattr` | NOT_AFFECTED (not in execute path) |
-| CVE-2023-32681 | GHSA-hcpj-qdhc-mh72 | requests | 2.30.0 | <2.31.0 | 2.31.0 | _(none; precondition: proxy config)_ | UNDER_INVESTIGATION |
-
-**Correction vs. original brief:** Pillow's fixed version is **10.1.0**, not 9.5.1.
-The installed version 9.5.0 is within the vulnerable range `<10.1.0`.
+| CVE-2020-14343 | GHSA-8q59-q68h-6hv4 | PyYAML | 5.3.1 | `< 5.4` | 5.4 | `full_load`, `FullLoader` | AFFECTED |
+| CVE-2023-50447 | GHSA-3f63-hfp8-52jq | Pillow | 9.5.0 | `< 10.2.0` | 10.2.0 | `PIL.ImageMath.eval` | NOT_AFFECTED (not in execute path) |
+| CVE-2024-22195 | GHSA-h5c8-rqwp-cp95 | jinja2 | 3.1.2 | `< 3.1.3` | 3.1.3 | `xmlattr` | NOT_AFFECTED (not in execute path) |
+| CVE-2023-32681 | GHSA-j8r2-6x86-q33q | requests | 2.30.0 | `>= 2.3.0, < 2.31.0` | 2.31.0 | _(none; precondition: proxy config)_ | UNDER_INVESTIGATION |
 
 ---
 
@@ -361,14 +359,16 @@ t24 scan \
 
 ## 5. Demo Product
 
-`demo_product/app.py` — a minimal Flask label-printer service:
+`demo_product/` — a minimal Flask label-printer service split across two files
+to exercise cross-file evidence chains:
 
-| Route | Code | Reason for expected verdict |
-|-------|------|----------------------------|
-| `POST /upload-config` | `yaml.full_load(request.data)` | Calls vulnerable symbol directly |
-| `POST /thumbnail` | `Image.open(...).thumbnail(...)` | Uses Pillow but not ImageMath.eval |
-| `GET /label/<id>` | `render_template(...)` | Uses Jinja2 but not xmlattr filter |
-| `GET /fetch-label` | `requests.get(url)` | No proxy config; precondition unprovable |
+| File | Route / function | Behaviour | Reason for expected verdict |
+|------|-----------------|-----------|----------------------------|
+| `app.py` | `POST /upload-config` | calls `config.load_settings(request.data)` | Two-file hop: app → config → `yaml.full_load` |
+| `config.py` | `load_settings(raw)` | calls `yaml.full_load(raw)` | Vulnerable call site |
+| `app.py` | `POST /thumbnail` | `PIL.Image.open(...).thumbnail(...)` | Pillow used, `ImageMath.eval` never called |
+| `app.py` | `GET /label/<id>` | `render_template("label.html", ...)` | Jinja2 used; `xmlattr` never in template |
+| `app.py` | `POST /webhook` | `requests.post(url, json=...)` — no `proxies=` | Proxy precondition not provable statically |
 
 `demo_product/requirements.txt`:
 ```
@@ -379,7 +379,9 @@ Jinja2==3.1.2
 requests==2.30.0
 ```
 
-Entry point for reachability: `demo_product/app.py`
+Entry-point detection: Flask route functions (decorated with `*.route`, `*.get`,
+`*.post`, etc.) plus any module-level code under `if __name__ == "__main__"`.
+`--entry-points file:function` overrides auto-detection.
 
 ---
 
@@ -406,6 +408,37 @@ The `SOURCE:` line is parsed by `advisory.py` to populate `advisory_source`.
 
 ---
 
+## 6a. Decisions
+
+Answers to design questions; these govern implementation.
+
+### D-1 Entry Points
+Auto-detect Flask route functions: any function decorated with an expression
+matching `*.route(...)`, `*.get(...)`, `*.post(...)` (or put/delete/patch).
+Also include module-level code executed under `if __name__ == "__main__"`.
+`--entry-points file:function` (repeatable) overrides auto-detection entirely.
+
+### D-2 Pillow Evidence
+`evidence` is `[]` for the Pillow finding because no call path from any entry
+point reaches `PIL.ImageMath.eval`. The `reason` field reads:
+> "Pillow is used (Image.thumbnail) but no path from any entry point reaches
+> ImageMath.eval."
+
+### D-3 Multiple Affected+Exploited CVEs
+`clock` remains a single object. When multiple findings are `affected` and
+actively exploited, use the one with the **earliest `aware_at`**. List the
+other CVE IDs in the `reason` field of that clock object.
+
+### D-4 Bob Mode Permissions
+Apply **both** layers of defence:
+1. The custom mode's `editFileRegex` (or equivalent permission field) is set to
+   a regex that excludes `dossier/.*` and `vercel\.json` at the tool level —
+   the agent cannot physically edit those files while in the mode.
+2. [`AGENTS.md`](../AGENTS.md) Rule 1 states the same boundary in plain language
+   for any agent that reads it.
+
+---
+
 ## 7. Bob Integration
 
 ### Custom Mode — `t24-mode`
@@ -413,6 +446,7 @@ The `SOURCE:` line is parsed by `advisory.py` to populate `advisory_source`.
 Defined in `.bob/modes/t24-mode.yaml`. Gives the agent:
 - Read access to `t24/`, `tests/`, `advisories/`, `demo_product/`, `docs/`
 - Write access to the same (never `dossier/`)
+- `editFileRegex` excludes `dossier/.*` and `vercel\.json`
 - System prompt reminding it of the deterministic verdict rule and DATA_CONTRACT
 
 ### Skill — `t24-triage`

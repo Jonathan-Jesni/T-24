@@ -113,6 +113,12 @@ this repository. Follow every rule unconditionally.
   GitHub Advisory Database URL.
 - Advisory text must be accurate to the GHSA record (CC-BY-4.0 licence).
 - Do not fabricate advisory text. If you are uncertain, leave a `TODO:` comment.
+- **Advisory facts must come from a fetched GHSA record, never from memory.**
+  Fetch with `curl -s https://api.github.com/advisories/<GHSA_ID>` and build
+  `advisories/<CVE>.md` from the returned `summary`, `description`,
+  `vulnerable_version_range`, and `first_patched_version` fields.
+  Include a `SOURCE: https://github.com/advisories/<GHSA_ID>` line and a
+  `Fetched: <date>` line in every advisory file.
 
 ---
 

@@ -1,0 +1,42 @@
+# Teammate boundary — never touch
+dossier/
+vercel.json
+
+# Generated outputs — never commit
+out/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python build artefacts
+__pycache__/
+*.py[cod]
+*.pyo
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Secrets
+.env
+.env.*
+*.env
+
+# Test and coverage artefacts
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Git internals
+.git/

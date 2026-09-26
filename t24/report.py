@@ -9,7 +9,6 @@ A banner at the top reminds reviewers these are drafts.
 from __future__ import annotations
 
 import pathlib
-import textwrap
 from datetime import datetime, timezone
 from string import Template
 
@@ -20,6 +19,19 @@ _BANNER = (
     "> **DRAFT for human review. "
     "T-24 does not submit to ENISA.**"
 )
+
+
+def _undent(text: str, width: int = 8) -> str:
+    """Strip the templates' fixed 8-space indent line by line.
+
+    textwrap.dedent stops working once an interpolated multi-line value (the
+    evidence list) adds unindented lines, which left the whole draft indented
+    and rendered as a Markdown code block.
+    """
+    pad = " " * width
+    lines = text.splitlines()
+    out = [ln[width:] if ln.startswith(pad) else ln for ln in lines]
+    return "\n".join(ln if ln.strip() else "" for ln in out).rstrip() + "\n"
 
 
 def render_early_warning(
@@ -38,7 +50,7 @@ def render_early_warning(
     evidence_text = _format_evidence(verdict)
     now_utc = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    content = textwrap.dedent(f"""\
+    content = _undent(f"""\
         {_BANNER}
 
         # CRA Art. 14 §1 — Early Warning: {verdict.cve}
@@ -99,7 +111,7 @@ def render_notification(
     evidence_text = _format_evidence(verdict)
     now_utc = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    content = textwrap.dedent(f"""\
+    content = _undent(f"""\
         {_BANNER}
 
         # CRA Art. 14 §2 — Notification: {verdict.cve}

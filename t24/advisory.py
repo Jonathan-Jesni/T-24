@@ -105,8 +105,8 @@ def _extraction_from_cache(
     return AdvisoryExtraction(
         cve=cve,
         package=data.get("package", ""),
-        affected_range=data.get("affected_range", ""),
-        fixed_version=data.get("fixed_version", ""),
+        affected_range=data.get("affected_range", "").strip(),
+        fixed_version=data.get("fixed_version", "").strip(),
         symbols=symbol_names,
         preconditions=data.get("preconditions", []),
         advisory_source=data.get("advisory_source", advisory_source),
@@ -168,14 +168,23 @@ def _cve_from_path(path: Path) -> str:
     return m.group(0) if m else path.stem
 
 
+def _same_range(a: str, b: str) -> bool:
+    """True when two version ranges mean the same thing (">=2.3,<2.31" == ">= 2.3, < 2.31")."""
+    from packaging.specifiers import InvalidSpecifier, SpecifierSet
+    try:
+        return SpecifierSet(a) == SpecifierSet(b)
+    except InvalidSpecifier:
+        return a.replace(" ", "") == b.replace(" ", "")
+
+
 def _extract_range_from_text(text: str) -> str:
     m = _RANGE_RE.search(text)
-    return m.group(1).strip().strip("*`") if m else ""
+    return m.group(1).strip().strip("*`").strip() if m else ""
 
 
 def _extract_fixed_from_text(text: str) -> str:
     m = _FIXED_RE.search(text)
-    return m.group(1).strip().strip("*`") if m else ""
+    return m.group(1).strip().strip("*`").strip() if m else ""
 
 
 def _build_extraction(
@@ -195,7 +204,7 @@ def _build_extraction(
     llm_range = raw.get("affected_range", "").strip()
     llm_fixed = raw.get("fixed_version", "").strip()
 
-    if advisory_range and llm_range and llm_range != advisory_range:
+    if advisory_range and llm_range and not _same_range(llm_range, advisory_range):
         log.warning("LLM affected_range %r differs from advisory %r — using advisory",
                     llm_range, advisory_range)
     if advisory_fixed and llm_fixed and llm_fixed != advisory_fixed:

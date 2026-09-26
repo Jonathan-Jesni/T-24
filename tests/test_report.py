@@ -110,3 +110,17 @@ class TestNotificationDraft:
                                    product_name="demo_product",
                                    drafts_dir=tmp_path / "drafts")
         assert path.name == "notification_CVE-2020-14343.md"
+
+
+def test_drafts_are_not_indented_code_blocks(tmp_path):
+    """Regression: the multi-line evidence list defeated textwrap.dedent, so every
+    template line kept an 8-space indent and the draft rendered as a code block."""
+    from t24.report import render_early_warning, render_notification
+
+    for render in (render_early_warning, render_notification):
+        path = render(verdict=_make_verdict_affected(), clock=_make_clock(),
+                      product_name="demo_product", drafts_dir=tmp_path / "drafts")
+        lines = path.read_text(encoding="utf-8").splitlines()
+        assert lines[0].startswith("> **DRAFT"), lines[0]
+        offenders = [ln for ln in lines if ln.startswith("    ")]
+        assert offenders == [], offenders[:3]

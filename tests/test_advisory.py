@@ -216,3 +216,18 @@ class TestMockedProvider:
         assert "extraction" in cached
         assert "provider" in cached
         assert "timestamp" in cached
+
+
+def test_published_range_has_no_stray_whitespace():
+    """Regression: '- **Vulnerable versions:** < 5.4' parsed as ' < 5.4'."""
+    from t24.advisory import _extract_range_from_text, _extract_fixed_from_text
+    text = open("advisories/CVE-2020-14343.md", encoding="utf-8").read()
+    assert _extract_range_from_text(text) == _extract_range_from_text(text).strip() != ""
+    assert _extract_fixed_from_text(text) == _extract_fixed_from_text(text).strip() != ""
+
+
+def test_equivalent_ranges_do_not_warn():
+    """'>=2.3.0,<2.31.0' and '>= 2.3.0, < 2.31.0' are the same range."""
+    from t24.advisory import _same_range
+    assert _same_range(">=2.3.0,<2.31.0", ">= 2.3.0, < 2.31.0")
+    assert not _same_range("<5.4", "<5.3")

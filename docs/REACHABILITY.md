@@ -32,32 +32,83 @@ produce. False positives (extra `under_investigation` verdicts) are acceptable.
 
 ---
 
-## What is over-approximated (sound, may produce false positives)
+## Class method model
 
-### Method calls on unresolved objects
+Each class method is stored as a graph node with the **qualified name**
+`ClassName.method_name` (e.g. `Loader.load`, `S._p`).  This separates
+method bodies from module-level code.
 
-When a call takes the form `obj.method(...)` and `obj` cannot be resolved to
-a known import alias (e.g. it is a locally-constructed instance), the engine
-adds graph edges to **every product-defined function named `method`**,
-regardless of class.
+**Key rules:**
+
+- A class body runs at import time, but **method bodies do not**.
+  Only a method body whose qualified node is reachable from an entry point
+  contributes to a call chain.
+- An unused class — never instantiated, never called — produces no reachable
+  nodes even if its methods reference vulnerable symbols.
+- `self.method()` inside a method is an unresolved method call and is
+  over-approximated exactly like `obj.method()` (see below).
 
 **Example:**
 ```python
 class Loader:
     def load(self, raw): return yaml.full_load(raw)
 
-Loader().load(x)   # obj is an unresolved local instance
+@app.route("/upload")
+def upload():
+    return Loader().load(raw)
+```
+Evidence chain:
+```
+app.py:14  function="upload"      call="Loader().load"
+app.py:9   function="Loader.load" call="yaml.full_load"
 ```
 
-The engine connects `upload → load` (the only product function named `load`),
-so `yaml.full_load` is correctly reached.
+**Unused class — NOT reached:**
+```python
+class Unused:
+    def load(self, raw): return yaml.full_load(raw)  # never called
 
-**False-positive scenario:** if the product contains many classes with a method
-named `load`, all of them get edges — some will be spurious. The verdict remains
+@app.route("/ping")
+def ping():
+    return "pong"  # yaml never reached
+```
+
+---
+
+## What is over-approximated (sound, may produce false positives)
+
+### Method calls on unresolved objects (`obj.method()`, `self.method()`)
+
+When a call takes the form `obj.method(...)` and `obj` cannot be resolved to
+a known import alias (e.g. it is a locally-constructed instance, the parameter
+`self`, or any other unresolved local name), the engine adds graph edges to
+**every product-defined function whose short name matches `method`**,
+regardless of class.  This includes `self.method()` calls inside class bodies.
+
+**Example:**
+```python
+class S:
+    def go(self):
+        self._p()     # unresolved — over-approx to all S._p / other ._p methods
+
+    def _p(self):
+        yaml.full_load("x: 1")
+
+@app.route("/")
+def index():
+    S().go()
+```
+
+The engine connects `index → S.go → S._p → yaml.full_load` via the
+over-approximation, producing a correct 3-hop evidence chain.
+
+**False-positive scenario:** if multiple classes define a method with the same
+short name, all of them get edges — some will be spurious.  The verdict remains
 sound: if any of those paths reaches the vulnerable target, `affected` is correct.
 
-This over-approximation is documented in code at
-[`t24/reach_graph.py`](../t24/reach_graph.py) in `build_graph()`.
+This over-approximation is implemented in
+[`t24/reach_graph.py`](../t24/reach_graph.py) `build_graph()` and
+[`t24/reach_parse.py`](../t24/reach_parse.py) `_receiver_is_known_import()`.
 
 ---
 
@@ -75,11 +126,33 @@ The verdict engine must treat `uncertain=True` as `under_investigation`.
 | `importlib.import_module("yaml")` | Module loaded dynamically; imports not tracked |
 | `__import__("yaml")` | Dynamic import |
 | `from yaml import *` | All names from module pulled into scope; cannot track |
-| Module object passed as value | e.g. `fn(yaml)` — any attribute access later is opaque |
+| Module object passed as value | e.g. `use(yaml)` — any `.attr` access later is opaque |
+
+**Module-object-as-value example:**
+```python
+def use(m): return m.full_load(raw)   # m is an opaque parameter
+
+@app.route("/upload")
+def upload():
+    use(yaml)   # yaml module passed by value — uncertain
+```
+The bare module name `yaml` (a known target module) is passed as a positional
+argument.  All subsequent attribute accesses on the parameter `m` are invisible
+to static analysis, so the engine sets `uncertain=True`.
 
 **Note:** `getattr(obj, "literal_name")` with a string constant is NOT flagged
-as uncertain (the attribute name is known at parse time). Only dynamic expressions
-trigger uncertainty.
+as uncertain (the attribute name is known at parse time).  Only dynamic
+expressions trigger uncertainty.
+
+---
+
+## Products outside the working directory
+
+When `scan()` is called with a `product_root` that is not under the current
+working directory (e.g. a path in `/tmp` while the repo is the CWD), the
+engine uses the product root's parent as the base for relative evidence paths.
+This prevents `ValueError` from `Path.relative_to()` and always produces
+forward-slash evidence paths regardless of OS.
 
 ---
 
@@ -119,6 +192,18 @@ Each hop in `evidence` is:
 ```
 
 - `file`: forward-slash path relative to the working directory at scan time
+  (or relative to the product root's parent if the product is outside CWD)
 - `line`: 1-based line number of the call expression
-- `function`: enclosing function name, or `"<module>"` for module-level code
+- `function`: enclosing function name; `"<module>"` for genuine module-level
+  statements; `"ClassName.method"` for class methods; `"<template>"` for
+  Jinja2 template hops
 - `call`: the call expression as printed by `ast.unparse`
+
+### Evidence chain invariants
+
+1. The first hop's `function` is always an entry-point function name (a Flask
+   route name, `add_url_rule` target, or `"<module>"`).
+2. `"<module>"` appears **only** when the call is a genuine top-level
+   statement — never inside a class body or function body.
+3. Class method hops carry the qualified name `"ClassName.method"`, not the
+   bare method name or `"<module>"`.

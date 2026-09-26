@@ -68,12 +68,21 @@ def scan(
         path_to_dotted(p, root) for p in py_files
     )
 
+    # Build the set of top-level module names we are targeting so the parser
+    # can flag bare module references (e.g. passing `yaml` as a value).
+    target_modules: frozenset[str] = frozenset(
+        t.split(".")[0] for t in targets if t
+    )
+
     parsed: list[ParsedFile] = []
     parse_failures = 0
 
     for py_path in py_files:
         try:
-            pf = parse_file(py_path, root, product_dotted_paths, cwd)
+            pf = parse_file(
+                py_path, root, product_dotted_paths, cwd,
+                target_modules=target_modules,
+            )
             parsed.append(pf)
         except SyntaxError:
             parse_failures += 1

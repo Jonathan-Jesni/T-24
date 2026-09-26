@@ -23,6 +23,9 @@ def last_hop(result: ReachResult) -> EvidenceHop:
     return result.evidence[-1]
 
 
+# Shared assertion helpers (canonical definitions live in conftest.py).
+from conftest import assert_chain_starts_at_entry, assert_no_module_level_in_methods  # noqa: F401
+
 # ---------------------------------------------------------------------------
 # Helper: run scan on a fixture directory for one target
 # ---------------------------------------------------------------------------

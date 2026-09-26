@@ -119,6 +119,15 @@ this repository. Follow every rule unconditionally.
   `vulnerable_version_range`, and `first_patched_version` fields.
   Include a `SOURCE: https://github.com/advisories/<GHSA_ID>` line and a
   `Fetched: <date>` line in every advisory file.
+  Save the raw API response as `advisories/<GHSA_ID>.json`.
+- **Advisory files contain only published text.** Do not add `## Vulnerable Symbols`,
+  `## Preconditions`, or any other annotation section — those are editorial
+  interpretations, not GHSA-published text. The engine must extract symbols from
+  published description text; pre-annotating them makes the verbatim check
+  self-fulfilling.
+- **Expected answers live in `tests/fixtures/` only.** The file
+  `tests/fixtures/expected_extractions.json` holds our expected LLM extraction
+  results for test assertions. It is never read by the engine at runtime.
 
 ---
 

@@ -1,0 +1,39 @@
+{
+  "_note": "Expected extraction answers for test_advisory.py. NOT used by the engine. Derived from verbatim advisory text.",
+  "CVE-2020-14343": {
+    "cve": "CVE-2020-14343",
+    "package": "PyYAML",
+    "affected_range": "< 5.4",
+    "fixed_version": "5.4",
+    "symbols": ["full_load", "FullLoader"],
+    "preconditions": [],
+    "advisory_source": "https://github.com/advisories/GHSA-8q59-q68h-6hv4"
+  },
+  "CVE-2023-50447": {
+    "cve": "CVE-2023-50447",
+    "package": "Pillow",
+    "affected_range": "< 10.2.0",
+    "fixed_version": "10.2.0",
+    "symbols": ["PIL.ImageMath.eval"],
+    "preconditions": [],
+    "advisory_source": "https://github.com/advisories/GHSA-3f63-hfp8-52jq"
+  },
+  "CVE-2024-22195": {
+    "cve": "CVE-2024-22195",
+    "package": "jinja2",
+    "affected_range": "< 3.1.3",
+    "fixed_version": "3.1.3",
+    "symbols": ["xmlattr"],
+    "preconditions": [],
+    "advisory_source": "https://github.com/advisories/GHSA-h5c8-rqwp-cp95"
+  },
+  "CVE-2023-32681": {
+    "cve": "CVE-2023-32681",
+    "package": "requests",
+    "affected_range": ">= 2.3.0, < 2.31.0",
+    "fixed_version": "2.31.0",
+    "symbols": [],
+    "preconditions": ["proxies must be configured with credentials in the URL user information component"],
+    "advisory_source": "https://github.com/advisories/GHSA-j8r2-6x86-q33q"
+  }
+}

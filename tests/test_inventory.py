@@ -55,6 +55,17 @@ class TestParseRequirements:
             "requests": "2.30.0",
         }
 
+    def test_unpinned_returns_none_value(self):
+        """Unpinned entries appear in the dict with value None."""
+        result = parse_requirements("requests>=2.0")
+        assert "requests" in result
+        assert result["requests"] is None
+
+    def test_not_listed_absent_from_dict(self):
+        """Packages not in the file do not appear in the dict."""
+        result = parse_requirements("Flask==2.3.0")
+        assert "numpy" not in result
+
 
 # ---------------------------------------------------------------------------
 # check_version
@@ -103,6 +114,7 @@ class TestCheckInstalledPackages:
         advisories = [Advisory("Flask", "< 2.4.0")]
         results = check_installed_packages(self.REQS, advisories)
         r = self._result_for(results, "flask")
+        assert r.present is True
         assert r.installed == "2.3.0"
         assert r.in_range is True
 
@@ -110,6 +122,7 @@ class TestCheckInstalledPackages:
         advisories = [Advisory("PyYAML", "< 5.4")]
         results = check_installed_packages(self.REQS, advisories)
         r = self._result_for(results, "pyyaml")
+        assert r.present is True
         assert r.installed == "5.3.1"
         assert r.in_range is True
 
@@ -117,6 +130,7 @@ class TestCheckInstalledPackages:
         advisories = [Advisory("requests", ">= 2.3.0, < 2.31.0")]
         results = check_installed_packages(self.REQS, advisories)
         r = self._result_for(results, "requests")
+        assert r.present is True
         assert r.installed == "2.30.0"
         assert r.in_range is True
 
@@ -124,13 +138,16 @@ class TestCheckInstalledPackages:
         advisories = [Advisory("Jinja2", "< 3.1.2")]
         results = check_installed_packages(self.REQS, advisories)
         r = self._result_for(results, "jinja2")
+        assert r.present is True
         assert r.installed == "3.1.2"
         assert r.in_range is False
 
     def test_package_not_in_requirements(self):
+        """Package absent from requirements.txt: present=False, in_range=False."""
         advisories = [Advisory("numpy", "< 1.24.0")]
         results = check_installed_packages(self.REQS, advisories)
         r = self._result_for(results, "numpy")
+        assert r.present is False
         assert r.installed is None
         assert r.in_range is False
 
@@ -151,7 +168,41 @@ class TestCheckInstalledPackages:
         flask_r = self._result_for(results, "flask")
         numpy_r = self._result_for(results, "numpy")
         requests_r = self._result_for(results, "requests")
+        assert flask_r.present is True
         assert flask_r.in_range is True
+        assert numpy_r.present is False
         assert numpy_r.installed is None
         assert numpy_r.in_range is False
+        assert requests_r.present is True
         assert requests_r.in_range is True
+
+    # --- Tri-state cases ---
+
+    def test_not_listed_present_false(self):
+        """Package not listed at all → present=False, in_range=False."""
+        advisories = [Advisory("cryptography", "< 40.0.0")]
+        results = check_installed_packages(self.REQS, advisories)
+        r = self._result_for(results, "cryptography")
+        assert r.present is False
+        assert r.installed is None
+        assert r.in_range is False
+
+    def test_listed_unpinned_in_range_none(self):
+        """Package listed but not pinned with == → present=True, in_range=None."""
+        reqs = "requests>=2.0\nFlask==2.3.0"
+        advisories = [Advisory("requests", ">= 2.3.0, < 2.31.0")]
+        results = check_installed_packages(reqs, advisories)
+        r = self._result_for(results, "requests")
+        assert r.present is True
+        assert r.installed is None
+        assert r.in_range is None
+
+    def test_listed_pinned_in_range_bool(self):
+        """Pinned package → present=True, in_range is a bool (not None)."""
+        advisories = [Advisory("Flask", "< 2.4.0")]
+        results = check_installed_packages(self.REQS, advisories)
+        r = self._result_for(results, "flask")
+        assert r.present is True
+        assert r.installed == "2.3.0"
+        assert isinstance(r.in_range, bool)
+        assert r.in_range is True

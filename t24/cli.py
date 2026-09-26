@@ -166,6 +166,7 @@ def run_scan(args: argparse.Namespace) -> int:
             symbols=ext.symbols, preconditions=ext.preconditions,
             advisory_source=ext.advisory_source, fixed_version=ext.fixed_version,
             package_display=ext.package,
+            template_filter_symbols=tpl_targets,
         )
         if (args.baseline and ext.cve in baseline_statuses
                 and baseline_statuses[ext.cve] == "affected"

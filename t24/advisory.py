@@ -192,8 +192,8 @@ def _build_extraction(
 
     advisory_range = _extract_range_from_text(advisory_text)
     advisory_fixed = _extract_fixed_from_text(advisory_text)
-    llm_range = raw.get("affected_range", "")
-    llm_fixed = raw.get("fixed_version", "")
+    llm_range = raw.get("affected_range", "").strip()
+    llm_fixed = raw.get("fixed_version", "").strip()
 
     if advisory_range and llm_range and llm_range != advisory_range:
         log.warning("LLM affected_range %r differs from advisory %r — using advisory",

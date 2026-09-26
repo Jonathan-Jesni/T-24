@@ -9,10 +9,16 @@ Decision tree (from docs/PLAN.md § 4.4 + user requirements):
 3. pinned, not in range         → not_affected / vulnerable_code_not_present
 4. in range, any target reached → affected, evidence = shortest chain
 5. in range, any reach uncertain → under_investigation, lists uncertain_sites
-6. in range, symbols named, none reached, files_parsed==files_found, no preconditions
-                                → not_affected / vulnerable_code_not_in_execute_path
-7. otherwise (no symbols, parse failures, preconditions)
-                                → under_investigation with specific reason
+6. in range, symbols named, none reached, files_parsed==files_found, not uncertain:
+   a. For each python symbol: libcallers returns None
+      → under_investigation, "library source unavailable"
+   b. For each python symbol: libcallers returns ≥1 hop
+      → under_investigation, reason cites file:line:function
+   c. All python symbols have zero internal callers (template_filter symbols skip check)
+      → not_affected / vulnerable_code_not_in_execute_path
+      Preconditions no longer block this; they appear in reason as informational text.
+7. otherwise (no symbols, parse failures)
+   → under_investigation with specific reason
 """
 from __future__ import annotations
 
@@ -21,6 +27,7 @@ from typing import Literal
 
 from t24.reach_bfs import EvidenceHop, ReachResult
 from t24.inventory import VersionCheck
+from t24.libcallers import find_internal_callers
 
 
 @dataclass
@@ -48,21 +55,25 @@ def decide(
     advisory_source: str,
     fixed_version: str = "",
     package_display: str = "",
+    template_filter_symbols: list[str] | None = None,
 ) -> VerdictResult:
     """Apply the deterministic decision tree and return a VerdictResult.
 
     Parameters
     ----------
-    cve:             CVE identifier
-    version_check:   result from inventory.check_installed_packages
-    reach_results:   list of ReachResult from reach.scan (may be empty)
-    symbols:         verbatim-checked symbol names from advisory extraction
-    preconditions:   runtime preconditions from advisory extraction
-    advisory_source: URL from SOURCE: line
-    fixed_version:   first fixed version string
-    package_display: original package name for display (defaults to version_check.package)
+    cve:                    CVE identifier
+    version_check:          result from inventory.check_installed_packages
+    reach_results:          list of ReachResult from reach.scan (may be empty)
+    symbols:                verbatim-checked symbol names from advisory extraction
+    preconditions:          runtime preconditions (informational only; no longer block)
+    advisory_source:        URL from SOURCE: line
+    fixed_version:          first fixed version string
+    package_display:        original package name for display
+    template_filter_symbols: symbols that are Jinja2 template filters — these skip
+                             the libcallers check (only templates invoke them)
     """
     pkg = package_display or version_check.package
+    tpl_filter_set = set(template_filter_symbols or [])
 
     def _make(status, justification, evidence, reason) -> VerdictResult:
         return VerdictResult(
@@ -103,7 +114,8 @@ def decide(
             "not_affected",
             "vulnerable_code_not_present",
             [],
-            f"{pkg} {version_check.installed} is outside affected range {version_check.affected_range}",
+            f"{pkg} {version_check.installed} is outside affected range "
+            f"{version_check.affected_range}",
         )
 
     # ── In-range from here ──────────────────────────────────────────────────
@@ -124,7 +136,7 @@ def decide(
         sites_summary = "; ".join(
             f"{s.get('file','?')}:{s.get('line','?')} — {s.get('reason','?')}"
             for rr in uncertain_results
-            for s in rr.uncertain_sites[:3]  # cap at 3 for readability
+            for s in rr.uncertain_sites[:3]
         )
         return _make(
             "under_investigation",
@@ -138,25 +150,37 @@ def decide(
     files_parsed = max((rr.files_parsed for rr in reach_results), default=0)
     full_coverage = (files_found == files_parsed) and files_found > 0
 
-    # ── Rule 6: symbols named, none reached, full coverage, no preconditions
-    if symbols and reach_results and full_coverage and not preconditions:
-        # Verify no symbol was reachable (belt-and-suspenders)
+    # ── Rule 6: symbols named, none reached, full coverage ──────────────────
+    if symbols and reach_results and full_coverage:
+        # Belt-and-suspenders: none should be reachable at this point
         if not any(rr.reachable for rr in reach_results):
+            # Check library-internal callers for each python symbol
+            # Template-filter symbols are exempt (only templates can invoke them)
+            python_symbols = [s for s in symbols if s not in tpl_filter_set]
+
+            under_reason = _check_internal_callers(pkg, python_symbols)
+            if under_reason is not None:
+                return _make("under_investigation", None, [], under_reason)
+
+            # All python symbols have zero internal callers — safe to emit not_affected
             symbol_list = ", ".join(symbols)
+            reason = (
+                f"{symbol_list}: no path from any entry point reaches the vulnerable symbol"
+            )
+            if preconditions:
+                reason += (
+                    f"; note: advisory preconditions (not statically verifiable): "
+                    + "; ".join(preconditions)
+                )
             return _make(
                 "not_affected",
                 "vulnerable_code_not_in_execute_path",
                 [],
-                f"{symbol_list}: no path from any entry point reaches the vulnerable symbol",
+                reason,
             )
 
     # ── Rule 7: everything else → under_investigation ───────────────────────
-    if preconditions:
-        reason = (
-            f"Preconditions cannot be verified statically: "
-            + "; ".join(preconditions)
-        )
-    elif not symbols:
+    if not symbols:
         reason = f"No vulnerable symbols named in advisory — cannot rule out exploitation"
     elif not full_coverage:
         reason = (
@@ -167,3 +191,39 @@ def decide(
         reason = "Insufficient information for definitive verdict"
 
     return _make("under_investigation", None, [], reason)
+
+
+def _check_internal_callers(pkg: str, python_symbols: list[str]) -> str | None:
+    """Check each python symbol for internal callers inside the library.
+
+    Returns an under_investigation reason string if any symbol has internal
+    callers or source is unavailable.  Returns None when all symbols are clear.
+    """
+    from packaging.utils import canonicalize_name
+    try:
+        from t24.qualify import _import_name
+        import_name = _import_name(pkg)
+    except Exception:
+        import_name = canonicalize_name(pkg).replace("-", "_")
+
+    for sym in python_symbols:
+        # Use the last component of a dotted name for the search
+        sym_last = sym.rsplit(".", 1)[-1]
+        hops = find_internal_callers(import_name, sym_last)
+        if hops is None:
+            return (
+                f"Library source unavailable for {pkg}; "
+                f"cannot rule out internal callers of {sym}"
+            )
+        if hops:
+            first = hops[0]
+            f_file = first.get("file", "?")
+            f_line = first.get("line", "?")
+            f_func = first.get("function", "?")
+            extra = f" (+{len(hops) - 1} more)" if len(hops) > 1 else ""
+            return (
+                f"{pkg} calls {sym} internally "
+                f"({f_file}:{f_line} {f_func}){extra}; "
+                f"the product uses {pkg}, so the vulnerable code can run on its behalf"
+            )
+    return None

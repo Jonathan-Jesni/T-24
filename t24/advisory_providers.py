@@ -57,6 +57,7 @@ def call_provider(advisory_text: str, cve: str) -> LLMResult:
     """Try watsonx → Fireworks → raise RuntimeError."""
     watsonx_key = os.environ.get("WATSONX_APIKEY", "")
     fireworks_key = os.environ.get("FIREWORKS_API_KEY", "")
+    fireworks_failure: str | None = None
 
     if watsonx_key:
         result = _call_watsonx(advisory_text, cve)
@@ -67,6 +68,14 @@ def call_provider(advisory_text: str, cve: str) -> LLMResult:
         result = _call_fireworks(advisory_text, cve)
         if result is not None:
             return result
+        # _call_fireworks returned None — call failed (logged internally)
+        fireworks_failure = "see log for details"
+
+    if fireworks_failure is not None:
+        raise RuntimeError(
+            f"Fireworks call failed ({fireworks_failure}); "
+            f"no cached extraction for {cve}."
+        )
 
     raise RuntimeError(
         f"No cached extraction for {cve} and no provider key set. "
@@ -164,6 +173,6 @@ def _pick_fireworks_model(api_key: str) -> str:
             return models[0]
     except Exception as exc:
         log.warning("Failed to list Fireworks models: %s", exc)
-    default = "accounts/fireworks/models/llama-v3p1-8b-instruct"
+    default = "accounts/fireworks/models/glm-5p3-flash"
     log.info("Falling back to default Fireworks model: %s", default)
     return default

@@ -15,7 +15,7 @@
     "affected_range": "< 10.2.0",
     "fixed_version": "10.2.0",
     "symbols": ["PIL.ImageMath.eval"],
-    "preconditions": [],
+    "preconditions": ["attacker must control the expression passed to eval"],
     "advisory_source": "https://github.com/advisories/GHSA-3f63-hfp8-52jq"
   },
   "CVE-2024-22195": {
@@ -24,7 +24,7 @@
     "affected_range": "< 3.1.3",
     "fixed_version": "3.1.3",
     "symbols": ["xmlattr"],
-    "preconditions": [],
+    "preconditions": ["attacker must control keys passed to xmlattr filter"],
     "advisory_source": "https://github.com/advisories/GHSA-h5c8-rqwp-cp95"
   },
   "CVE-2023-32681": {
@@ -32,7 +32,7 @@
     "package": "requests",
     "affected_range": ">= 2.3.0, < 2.31.0",
     "fixed_version": "2.31.0",
-    "symbols": [],
+    "symbols": ["rebuild_proxies"],
     "preconditions": ["proxies must be configured with credentials in the URL user information component"],
     "advisory_source": "https://github.com/advisories/GHSA-j8r2-6x86-q33q"
   }

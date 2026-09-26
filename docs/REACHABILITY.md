@@ -171,6 +171,51 @@ forward-slash evidence paths regardless of OS.
 
 ---
 
+## Library-internal callers
+
+A product may import a library and call a high-level API (e.g. `requests.post`)
+without directly calling the vulnerable symbol.  The library may invoke the
+vulnerable symbol **internally** as part of its own implementation.
+
+**Example — requests CVE-2023-32681:**
+```
+Product:            app.py → requests.post(...)
+requests internals: sessions.py:245 resolve_redirects → rebuild_proxies
+                    adapters.py:350 get_connection     → proxy_manager_for
+                    adapters.py:225 proxy_manager_for  → proxy_headers
+```
+The product never calls `rebuild_proxies` directly, but `requests` does — so the
+vulnerable code runs on the product's behalf whenever the product uses `requests`.
+
+### How T-24 handles this
+
+After the static reachability scan finds no direct path from the product's entry
+points to a vulnerable symbol, [`t24/libcallers.py`](../t24/libcallers.py) AST-scans
+the installed library's own `.py` files for internal callers:
+
+| `find_internal_callers` result | Verdict |
+|-------------------------------|---------|
+| `None` (library source unavailable / C extension) | `under_investigation` — cannot rule out internal callers |
+| Non-empty list of hops | `under_investigation` — library calls symbol internally; reason cites `file:line function` |
+| Empty list `[]` | Proceed to `not_affected` (if all other gates pass) |
+
+**Matching rules** (`libcallers.py`):
+- Matches `Name(id == symbol)` — bare call `rebuild_proxies(...)`
+- Matches `Attribute(attr == symbol)` — method call `self.rebuild_proxies(...)`
+- Skips the function whose name **is** the symbol (the definition, not a caller)
+- Skips `builtins.eval(...)` — receiver is literally `builtins`; that is the
+  stdlib built-in, not the library's own symbol
+
+**Template-filter symbols** (kind `template_filter`, e.g. `xmlattr` in Jinja2) are
+exempt from the libcallers check.  Only Jinja2 template rendering can invoke them,
+and that is already handled by the template-filter scanning path.
+
+**Preconditions** extracted by the LLM are no longer a blocking condition for
+`not_affected`.  They are preserved in the `reason` field as informational text so
+operators can review them, but they do not by themselves force `under_investigation`.
+
+---
+
 ## Coverage and the `not_affected` gate
 
 `not_affected / vulnerable_code_not_in_execute_path` is emitted **only when**:
@@ -178,9 +223,11 @@ forward-slash evidence paths regardless of OS.
 1. `files_parsed == files_found` (every `.py` file in the product parsed successfully)
 2. `uncertain == False` (no dynamic-access patterns found)
 3. No evidence path from any entry point to any vulnerable symbol was found
+4. `find_internal_callers` returns `[]` for every non-template-filter symbol
+   (library source available and no internal callers detected)
 
-If any file fails to parse or any dynamic pattern is detected, the verdict is
-`under_investigation`, not `not_affected`.
+If any file fails to parse, any dynamic pattern is detected, or the library
+source is unavailable, the verdict is `under_investigation`, not `not_affected`.
 
 ---
 

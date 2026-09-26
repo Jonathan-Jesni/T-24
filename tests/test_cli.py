@@ -5,9 +5,10 @@ to return the answers in tests/fixtures/expected_extractions.json.
 
 Expected verdicts:
   CVE-2020-14343  → affected, 2-hop chain, clock present
-  CVE-2023-50447  → not_affected (vulnerable_code_not_in_execute_path)
-  CVE-2024-22195  → not_affected (vulnerable_code_not_in_execute_path)
-  CVE-2023-32681  → under_investigation (precondition reason)
+  CVE-2023-50447  → not_affected (vulnerable_code_not_in_execute_path), even with non-empty preconditions
+  CVE-2024-22195  → not_affected (vulnerable_code_not_in_execute_path), even with non-empty preconditions
+  CVE-2023-32681  → under_investigation ("internally" in reason), because requests calls
+                    rebuild_proxies internally via resolve_redirects
 """
 from __future__ import annotations
 
@@ -21,6 +22,20 @@ REPO_ROOT = pathlib.Path(__file__).parent.parent
 FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures"
 DEMO_PRODUCT = REPO_ROOT / "demo_product"
 ADVISORIES_DIR = REPO_ROOT / "advisories"
+
+
+def _fake_find_internal_callers(import_name, symbol_last):
+    """Hermetic stand-in for find_internal_callers used across e2e tests.
+
+    Simulates realistic library behaviour without touching the real
+    installed packages:
+      - rebuild_proxies  → has an internal caller (requests/sessions.py)
+      - everything else  → no internal callers
+    """
+    if symbol_last == "rebuild_proxies":
+        return [{"file": "requests/sessions.py", "line": 245,
+                 "function": "resolve_redirects"}]
+    return []
 
 
 def _load_expected() -> dict:
@@ -45,8 +60,26 @@ def _build_cache(cache_dir: pathlib.Path) -> None:
 
 
 class TestEndToEnd:
+    @pytest.fixture(autouse=True)
+    def _patch_libcallers(self):
+        """Patch find_internal_callers for all e2e tests to keep them hermetic.
+
+        rebuild_proxies gets an internal caller; everything else returns [].
+        """
+        with mock.patch("t24.verdict.find_internal_callers",
+                        side_effect=_fake_find_internal_callers):
+            yield
+
     def test_full_scan_four_verdicts(self, tmp_path):
-        """Full scan produces the four expected verdicts."""
+        """Full scan produces the four expected verdicts.
+
+        Pillow and Jinja2 must be not_affected even when their mocked extractions
+        carry non-empty preconditions (the new rule ignores preconditions as
+        a blocking condition).
+
+        requests must be under_investigation because rebuild_proxies is called
+        internally by the library itself (resolve_redirects).
+        """
         from t24.cli import main
 
         cache_dir = tmp_path / "cache"
@@ -73,22 +106,26 @@ class TestEndToEnd:
         assert f0["justification"] is None
         assert len(f0["evidence"]) >= 2, "Expected 2-hop chain"
 
-        # CVE-2023-50447 → not_affected
+        # CVE-2023-50447 → not_affected (even though preconditions are non-empty)
         f1 = findings["CVE-2023-50447"]
-        assert f1["status"] == "not_affected"
+        assert f1["status"] == "not_affected", \
+            "Pillow: preconditions alone must not block not_affected"
         assert f1["justification"] == "vulnerable_code_not_in_execute_path"
         assert f1["evidence"] == []
 
-        # CVE-2024-22195 → not_affected
+        # CVE-2024-22195 → not_affected (even though preconditions are non-empty)
         f2 = findings["CVE-2024-22195"]
-        assert f2["status"] == "not_affected"
+        assert f2["status"] == "not_affected", \
+            "Jinja2: preconditions alone must not block not_affected"
         assert f2["justification"] == "vulnerable_code_not_in_execute_path"
 
-        # CVE-2023-32681 → under_investigation
+        # CVE-2023-32681 → under_investigation because rebuild_proxies is called
+        # internally by requests (via resolve_redirects)
         f3 = findings["CVE-2023-32681"]
         assert f3["status"] == "under_investigation"
         assert f3["justification"] is None
-        assert "precondition" in f3["reason"].lower() or "proxy" in f3["reason"].lower()
+        assert "internally" in f3["reason"].lower(), \
+            f"Expected 'internally' in reason, got: {f3['reason']!r}"
 
     def test_two_hop_chain_for_yaml(self, tmp_path):
         """CVE-2020-14343 evidence must be a 2-hop cross-file chain."""

@@ -10,10 +10,11 @@ requires-python = ">=3.11"
 dependencies = [
     "packaging>=23.0",
     "pydantic>=2.0",
+    "python-dotenv>=1.0",
 ]
 
 [project.scripts]
-t24 = "t24.cli:app"
+t24 = "t24.cli:main"
 
 [project.optional-dependencies]
 dev = [

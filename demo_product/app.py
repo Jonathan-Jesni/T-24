@@ -1,6 +1,7 @@
 from io import BytesIO
 
 import requests
+import yaml
 from flask import Flask, request, render_template, jsonify
 from PIL import Image
 
@@ -11,7 +12,10 @@ app = Flask(__name__)
 
 @app.route("/upload-config", methods=["POST"])
 def upload_config():
-    settings = config.load_settings(request.data)
+    try:
+        settings = config.load_settings(request.data)
+    except yaml.YAMLError:
+        return jsonify({"error": "invalid config"}), 400
     return jsonify(settings)
 
 

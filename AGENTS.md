@@ -37,7 +37,24 @@ this repository. Follow every rule unconditionally.
 
 ---
 
-## 3. `not_affected` Requires Complete Parse Coverage
+## 3. Soundness Over Completeness
+
+**When the engine cannot prove a target is unreachable, it reports uncertainty,
+never "not reached".**
+
+- A `ReachResult` with `reachable=False` and `uncertain=True` means the engine
+  found dynamic-access patterns (e.g. `getattr(yaml, expr)`, `importlib.import_module`,
+  `__import__`, `from x import *`) that it cannot statically resolve.
+- The verdict engine must treat `uncertain=True` the same as `under_investigation`.
+- **Never** report `not_affected / vulnerable_code_not_in_execute_path` when
+  `uncertain=True` for any finding in that product.
+- False negatives (reporting "not reached" when the target IS reachable) are the
+  one failure T-24 must never have. False positives (extra `under_investigation`
+  results) are acceptable.
+
+---
+
+## 4. `not_affected` Requires Complete Parse Coverage
 
 - The justification `vulnerable_code_not_in_execute_path` **must not** be emitted
   unless `coverage.files_parsed == coverage.files_found`.

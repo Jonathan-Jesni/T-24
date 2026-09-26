@@ -8,26 +8,25 @@ Usage::
         product_root=pathlib.Path("demo_product"),
         targets=["yaml.full_load", "yaml.FullLoader", "PIL.ImageMath.eval"],
         template_filters=["xmlattr"],
-        entry_points=[],   # empty = auto-detect Flask routes
+        entry_points=[],   # empty = auto-detect Flask routes + module-level
     )
     for r in results:
         print(r.target, r.reachable, r.evidence)
+        if r.uncertain:
+            print("  uncertain sites:", r.uncertain_sites)
 """
 from __future__ import annotations
 
-import ast
 import pathlib
 
 from t24.reach_graph import (
-    EvidenceHop,
-    ReachResult,
     ParsedFile,
-    bfs_reach,
     build_graph,
     collect_entry_nodes,
     parse_file,
+    path_to_dotted,
 )
-from t24.reach_imports import build_import_map
+from t24.reach_bfs import EvidenceHop, ReachResult, bfs_reach
 
 __all__ = ["scan", "ReachResult", "EvidenceHop"]
 
@@ -56,35 +55,32 @@ def scan(
     One :class:`ReachResult` per target + one per template filter.
     """
     root = pathlib.Path(product_root).resolve()
+    cwd = pathlib.Path.cwd()
 
-    # --- Collect all .py files ---
+    if not targets and not template_filters:
+        return []
+
     py_files = sorted(root.rglob("*.py"))
     files_found_base = len(py_files)
 
-    # Sibling stems = all file stems in the project (for cross-file import resolution)
-    sibling_stems: frozenset[str] = frozenset(p.stem for p in py_files)
+    # Compute dotted paths for all product modules (needed for import resolution)
+    product_dotted_paths: frozenset[str] = frozenset(
+        path_to_dotted(p, root) for p in py_files
+    )
 
-    # --- Parse each file; record failures ---
     parsed: list[ParsedFile] = []
     parse_failures = 0
 
     for py_path in py_files:
         try:
-            pf = parse_file(py_path, root, sibling_stems)
+            pf = parse_file(py_path, root, product_dotted_paths, cwd)
             parsed.append(pf)
         except SyntaxError:
             parse_failures += 1
 
-    if not targets and not template_filters:
-        return []
-
-    # --- Build call graph ---
     graph = build_graph(parsed)
+    entries = collect_entry_nodes(parsed, entry_points, cwd)
 
-    # --- Collect entry nodes ---
-    entries = collect_entry_nodes(parsed, entry_points, root)
-
-    # --- BFS ---
     results = bfs_reach(
         graph=graph,
         entry_nodes=entries,
@@ -92,14 +88,13 @@ def scan(
         targets=targets,
         template_targets=template_filters,
         root=root,
+        cwd=cwd,
     )
 
-    # Patch files_found / files_parsed to reflect parse failures
-    actual_found = files_found_base
+    # Patch in accurate file counts (includes parse failures)
     actual_parsed = files_found_base - parse_failures
     for r in results:
-        object.__setattr__(r, "files_found", actual_found) if hasattr(r, "__setattr__") else None
-        r.files_found = actual_found
+        r.files_found = files_found_base
         r.files_parsed = actual_parsed
 
     return results

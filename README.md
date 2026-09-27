@@ -10,7 +10,7 @@ T-24 answers that question with code-level proof in seconds, then drafts everyth
 
 Built with **IBM Bob 2.0** for the IBM Bob 2.0 Hackathon.
 
-**Live demo:** LIVE_URL (toggle *Before fix / After fix*)
+**Live demo:** [t-24.vercel.app](https://t-24.vercel.app/dossier/) (toggle *Before fix / After fix*)
 
 ---
 

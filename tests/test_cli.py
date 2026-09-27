@@ -324,3 +324,270 @@ class TestEndToEnd:
         assert s["not_affected"] == 2
         assert s["under_investigation"] == 1
         assert s["emergency_releases_avoided"] == 2
+
+
+class TestClockSurvivedFix:
+    """Change 1 — CRA clock and drafts must survive a 'fixed' verdict.
+
+    When a finding was 'affected' in the baseline and the re-scan produces
+    'fixed', the clock block must still be present and both draft files must
+    be generated.  The notification's corrective-measures section must mention
+    the fix and cite the baseline evidence path.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _patch_libcallers(self):
+        with mock.patch("t24.verdict.find_internal_callers",
+                        side_effect=_fake_find_internal_callers):
+            yield
+
+    def _run_before_scan(self, tmp_path) -> pathlib.Path:
+        """Run the 'before' scan: CVE-2020-14343 is affected."""
+        from t24.cli import main
+
+        cache_dir = tmp_path / "cache"
+        _build_cache(cache_dir)
+        out_dir = tmp_path / "out_before"
+        ret = main([
+            "scan",
+            str(DEMO_PRODUCT),
+            "--advisories", str(ADVISORIES_DIR),
+            "--out", str(out_dir),
+            "--cache", str(cache_dir),
+            "--offline",
+            "--exploited", "CVE-2020-14343=2026-09-27T02:00:00Z",
+        ])
+        assert ret == 0
+        return out_dir / "dossier.json"
+
+    def test_clock_present_for_fixed_exploited(self, tmp_path):
+        """After fix, clock must remain non-null when exploited flag is set."""
+        from t24.cli import main
+
+        before_dossier = self._run_before_scan(tmp_path)
+
+        # Second scan: same product, same code (still "affected" without a real
+        # fix, but we simulate a non-affected result by providing a baseline
+        # where status was "affected" and the new scan returns not_affected.
+        # We fake this by making a modified baseline that says "affected" and
+        # running the scan without --exploited on a code path that returns
+        # not_affected — then the baseline promotion logic sets it to "fixed".
+        # For simplicity, use the real before-dossier as the baseline; since
+        # demo_product is still unmodified the verdict will be "affected" again,
+        # but we can still test the "fixed" path by constructing a synthetic
+        # baseline that says "affected" and a scan that *would* produce not_affected.
+
+        # Build a synthetic baseline: CVE-2020-14343 was "affected" with evidence
+        synthetic_baseline = {
+            "findings": [
+                {
+                    "cve": "CVE-2020-14343",
+                    "status": "affected",
+                    "evidence": [
+                        {"file": "demo_product/config.py", "line": 5,
+                         "function": "load_settings", "call": "yaml.full_load"}
+                    ],
+                }
+            ]
+        }
+        baseline_path = tmp_path / "synthetic_baseline.json"
+        baseline_path.write_text(json.dumps(synthetic_baseline))
+
+        # Build a cache that tells the engine CVE-2020-14343 has no symbols
+        # so the reach scan returns no hits and verdict becomes not_affected/under_inv.
+        # We'll patch decide() to return not_affected so baseline promotion fires.
+        from t24.verdict import VerdictResult
+
+        fixed_verdict = VerdictResult(
+            cve="CVE-2020-14343",
+            package="PyYAML",
+            installed="5.4",
+            affected_range="<5.4",
+            fixed_version="5.4",
+            symbols=["full_load"],
+            status="not_affected",
+            justification="vulnerable_code_not_in_execute_path",
+            evidence=[],
+            reason="full_load: no path from any entry point",
+            advisory_source="https://github.com/advisories/GHSA-8q59-q68h-6hv4",
+        )
+
+        cache_dir = tmp_path / "cache"
+        _build_cache(cache_dir)
+        out_dir = tmp_path / "out_after"
+
+        import t24.verdict as _verdict_mod
+        _real_decide = _verdict_mod.decide
+
+        def _patched_decide(cve, **kwargs):
+            if cve == "CVE-2020-14343":
+                return fixed_verdict
+            return _real_decide(cve=cve, **kwargs)
+
+        with mock.patch("t24.verdict.decide", side_effect=_patched_decide):
+            ret = main([
+                "scan",
+                str(DEMO_PRODUCT),
+                "--advisories", str(ADVISORIES_DIR),
+                "--out", str(out_dir),
+                "--cache", str(cache_dir),
+                "--offline",
+                "--exploited", "CVE-2020-14343=2026-09-27T02:00:00Z",
+                "--baseline", str(baseline_path),
+            ])
+        assert ret == 0
+
+        dossier = json.loads((out_dir / "dossier.json").read_text())
+        findings = {f["cve"]: f for f in dossier["findings"]}
+        f = findings["CVE-2020-14343"]
+
+        # Status must be "fixed"
+        assert f["status"] == "fixed", f"Expected fixed, got {f['status']!r}"
+
+        # Clock must still be non-null
+        assert dossier["clock"] is not None, "Clock must survive a fix"
+        assert dossier["clock"]["cve"] == "CVE-2020-14343"
+
+        # Both draft files must be present
+        assert len(f["drafts"]) == 2, f"Expected 2 drafts, got {f['drafts']}"
+
+    def test_notification_cites_fix_and_baseline_evidence(self, tmp_path):
+        """Notification draft for a fixed finding must state the fix and cite baseline evidence."""
+        from t24.report import render_notification
+        from t24.verdict import VerdictResult
+        from t24.reach_bfs import EvidenceHop
+        from t24.clock import make_clock
+        from datetime import datetime, timezone
+
+        verdict = VerdictResult(
+            cve="CVE-2020-14343",
+            package="PyYAML",
+            installed="5.4",
+            affected_range="<5.4",
+            fixed_version="5.4",
+            symbols=["full_load"],
+            status="fixed",
+            justification=None,
+            evidence=[],
+            reason="Previously affected; no longer reachable",
+            advisory_source="https://github.com/advisories/GHSA-8q59-q68h-6hv4",
+        )
+        clock = make_clock("CVE-2020-14343",
+                           datetime(2026, 9, 27, 2, 0, 0, tzinfo=timezone.utc))
+        bl_evidence = [
+            {"file": "demo_product/config.py", "line": 5,
+             "function": "load_settings", "call": "yaml.full_load"}
+        ]
+
+        path = render_notification(
+            verdict=verdict,
+            clock=clock,
+            product_name="demo_product",
+            drafts_dir=tmp_path / "drafts",
+            baseline_evidence=bl_evidence,
+        )
+        text = path.read_text()
+
+        # Must mention the fix was applied
+        assert "FIX APPLIED" in text, "Notification must state fix was applied"
+        # Must cite the baseline evidence file:line
+        assert "demo_product/config.py:5" in text, \
+            "Notification must cite baseline evidence path"
+        # Standard fields still present
+        assert "CVE-2020-14343" in text
+        assert "DRAFT" in text
+
+
+class TestPublishSnapshot:
+    """Change 2 — --publish copies outputs and rewrites paths."""
+
+    @pytest.fixture(autouse=True)
+    def _patch_libcallers(self):
+        with mock.patch("t24.verdict.find_internal_callers",
+                        side_effect=_fake_find_internal_callers):
+            yield
+
+    def test_publish_creates_dossier_vex_and_drafts(self, tmp_path):
+        """--publish <dir> copies dossier.json, vex.json and drafts/ into dir."""
+        from t24.cli import main
+
+        cache_dir = tmp_path / "cache"
+        _build_cache(cache_dir)
+        out_dir = tmp_path / "out"
+        publish_dir = tmp_path / "pub"
+
+        ret = main([
+            "scan", str(DEMO_PRODUCT),
+            "--advisories", str(ADVISORIES_DIR),
+            "--out", str(out_dir),
+            "--cache", str(cache_dir),
+            "--offline",
+            "--exploited", "CVE-2020-14343=2026-09-27T02:00:00Z",
+            "--publish", str(publish_dir),
+        ])
+        assert ret == 0
+
+        # Published copies exist
+        assert (publish_dir / "dossier.json").exists()
+        assert (publish_dir / "vex.json").exists()
+        assert (publish_dir / "drafts").is_dir()
+        # Draft files copied
+        drafts = list((publish_dir / "drafts").iterdir())
+        assert len(drafts) >= 2
+
+    def test_publish_rewrites_vex_path_and_drafts(self, tmp_path):
+        """Paths in the published dossier are relative to the publish dir."""
+        from t24.cli import main
+
+        cache_dir = tmp_path / "cache"
+        _build_cache(cache_dir)
+        out_dir = tmp_path / "out"
+        publish_dir = tmp_path / "pub"
+
+        main([
+            "scan", str(DEMO_PRODUCT),
+            "--advisories", str(ADVISORIES_DIR),
+            "--out", str(out_dir),
+            "--cache", str(cache_dir),
+            "--offline",
+            "--exploited", "CVE-2020-14343=2026-09-27T02:00:00Z",
+            "--publish", str(publish_dir),
+        ])
+
+        published = json.loads((publish_dir / "dossier.json").read_text())
+
+        # vex_path must be "vex.json" (relative to pub dir)
+        assert published["vex_path"] == "vex.json", \
+            f"Expected 'vex.json', got {published['vex_path']!r}"
+
+        # Draft paths must be "drafts/<filename>"
+        findings = {f["cve"]: f for f in published["findings"]}
+        for draft_p in findings["CVE-2020-14343"]["drafts"]:
+            assert draft_p.startswith("drafts/"), \
+                f"Expected draft path to start with 'drafts/', got {draft_p!r}"
+            assert "/" not in draft_p[len("drafts/"):], \
+                f"Unexpected subdirectory in draft path: {draft_p!r}"
+
+    def test_original_dossier_unchanged(self, tmp_path):
+        """--publish must not alter the original out/dossier.json paths."""
+        from t24.cli import main
+
+        cache_dir = tmp_path / "cache"
+        _build_cache(cache_dir)
+        out_dir = tmp_path / "out"
+        publish_dir = tmp_path / "pub"
+
+        main([
+            "scan", str(DEMO_PRODUCT),
+            "--advisories", str(ADVISORIES_DIR),
+            "--out", str(out_dir),
+            "--cache", str(cache_dir),
+            "--offline",
+            "--exploited", "CVE-2020-14343=2026-09-27T02:00:00Z",
+            "--publish", str(publish_dir),
+        ])
+
+        original = json.loads((out_dir / "dossier.json").read_text())
+        # Original vex_path must still point into out/
+        assert original["vex_path"] != "vex.json", \
+            "Original dossier vex_path should not be rewritten"

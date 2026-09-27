@@ -20,7 +20,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from t24.cli_output import rel_path, build_dossier, print_table
+from t24.cli_output import rel_path, build_dossier, print_table, publish_snapshot
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +51,9 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--aware-at", dest="aware_at")
     scan.add_argument("--baseline")
     scan.add_argument("--entry-points", dest="entry_points", default="")
+    scan.add_argument("--publish", default=None, metavar="DIR",
+                      help="Copy dossier.json, vex.json and drafts/ into DIR "
+                           "with paths rewritten relative to DIR.")
     return p
 
 
@@ -91,11 +94,13 @@ def run_scan(args: argparse.Namespace) -> int:
 
     # Load baseline dossier
     baseline_statuses: dict[str, str] = {}
+    baseline_evidence: dict[str, list] = {}
     if args.baseline:
         try:
             bl = json.loads(pathlib.Path(args.baseline).read_text())
             for f in bl.get("findings", []):
                 baseline_statuses[f["cve"]] = f["status"]
+                baseline_evidence[f["cve"]] = f.get("evidence", [])
         except Exception as exc:
             log.warning("Failed to load baseline: %s", exc)
 
@@ -177,25 +182,29 @@ def run_scan(args: argparse.Namespace) -> int:
 
     duration = time.monotonic() - start
 
-    # Clock — earliest affected+exploited finding
+    # Clock — earliest affected-or-fixed + exploited finding
+    # CRA Art. 14 obligations survive a fix; the notification reports corrective measures.
     clock_obj = None
-    affected_exploited = sorted(
-        [v for v in verdicts if v.status == "affected" and v.cve in exploited_map],
+    clock_eligible = sorted(
+        [v for v in verdicts
+         if v.status in ("affected", "fixed") and v.cve in exploited_map],
         key=lambda v: exploited_map[v.cve],
     )
-    if affected_exploited:
-        clock_obj = make_clock(affected_exploited[0].cve,
-                               exploited_map[affected_exploited[0].cve])
+    if clock_eligible:
+        clock_obj = make_clock(clock_eligible[0].cve,
+                               exploited_map[clock_eligible[0].cve])
 
     # Draft reports
     drafts_dir = out_dir / "drafts"
     for v in verdicts:
         v.drafts = []
-        if v.status == "affected" and v.cve in exploited_map and clock_obj:
+        if v.status in ("affected", "fixed") and v.cve in exploited_map and clock_obj:
             ew = render_early_warning(verdict=v, clock=clock_obj,
                                       product_name=product_root.name, drafts_dir=drafts_dir)
+            bl_ev = baseline_evidence.get(v.cve) if v.status == "fixed" else None
             notif = render_notification(verdict=v, clock=clock_obj,
-                                        product_name=product_root.name, drafts_dir=drafts_dir)
+                                        product_name=product_root.name, drafts_dir=drafts_dir,
+                                        baseline_evidence=bl_ev)
             v.drafts = [rel_path(ew), rel_path(notif)]
 
     # Write VEX
@@ -211,6 +220,14 @@ def run_scan(args: argparse.Namespace) -> int:
     )
     (out_dir / "dossier.json").write_text(json.dumps(dossier, indent=2), encoding="utf-8")
     print_table(verdicts, duration)
+
+    if args.publish:
+        publish_snapshot(
+            out_dir=out_dir,
+            publish_dir=pathlib.Path(args.publish),
+            dossier=dossier,
+        )
+
     return 0
 
 

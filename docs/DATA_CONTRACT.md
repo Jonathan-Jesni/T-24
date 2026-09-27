@@ -94,9 +94,10 @@ Maintained by: this repository. The web UI (`dossier/`) consumes this file.
 
 ### `clock` object (or null)
 
-`clock` is **non-null only** when at least one finding has `status == "affected"` AND the
-user supplied `--actively-exploited <CVE>=<ISO8601>` on the CLI.
-When `clock` is non-null it contains data for exactly one CVE (the first affected+exploited one).
+`clock` is **non-null only** when at least one finding has `status == "affected"` **or `status == "fixed"`**
+AND the user supplied `--actively-exploited <CVE>=<ISO8601>` on the CLI.
+(A fixed finding still owes CRA Art. 14 reports — the notification is where corrective measures are reported.)
+When `clock` is non-null it contains data for exactly one CVE (the first affected-or-fixed+exploited one).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -156,7 +157,8 @@ for all in-range findings with symbols.
 1. `status` is always set by deterministic logic — never by the LLM.
 2. `justification` is `null` for every status other than `not_affected`.
 3. `evidence` is `[]` when `status != "affected"`.
-4. `drafts` is `[]` when `clock` is `null` or `status != "affected"`.
+4. `drafts` is `[]` when `clock` is `null` or `status` is neither `"affected"` nor `"fixed"`.
+   For `"fixed"` findings, drafts are generated and the notification's corrective-measures section cites the fix.
 5. `symbols` contains only strings that appear verbatim in the advisory text.
 6. `clock` is `null` unless the user explicitly passed `--actively-exploited`.
 

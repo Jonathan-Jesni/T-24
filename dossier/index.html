@@ -294,6 +294,28 @@
   .footer-note strong { color: var(--text); }
   .footer-brand { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
 
+
+  /* Before/After toggle */
+  .toggle-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0 0;
+  }
+  .toggle-label { font-size: 12px; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.08em; }
+  .toggle-btn {
+    font-size: 12px; font-weight: 600; padding: 5px 16px; border-radius: 20px;
+    cursor: pointer; border: 1px solid var(--border2); background: var(--surface2);
+    color: var(--muted); transition: all 0.2s; font-family: var(--font-sans);
+  }
+  .toggle-btn.active { background: var(--blue-dim); color: var(--blue); border-color: var(--blue); }
+  .toggle-btn:hover:not(.active) { border-color: var(--text); color: var(--text); }
+  /* Patched note */
+  .patched-note {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--blue); background: var(--blue-dim);
+    border: 1px solid var(--blue); border-radius: var(--radius-sm);
+    padding: 3px 10px; font-weight: 500;
+  }
   @keyframes fadeSlideUp {
     from { opacity: 0; transform: translateY(14px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -320,6 +342,15 @@
       </div>
     </div>
   </header>
+
+
+  <section style="padding-top:24px">
+    <div class="toggle-bar">
+      <span class="toggle-label">Snapshot</span>
+      <button class="toggle-btn active" id="btn-before">Before Fix</button>
+      <button class="toggle-btn" id="btn-after">After Fix</button>
+    </div>
+  </section>
 
   <section class="cra-panel">
     <div class="section-title">CRA ENISA Deadline Clock</div>
@@ -360,22 +391,56 @@
 
   var EMBEDDED = {"product":"demo_product","scanned_at":"2026-09-26T18:52:29Z","duration_s":4.7,"summary":{"advisories":4,"affected":1,"not_affected":2,"under_investigation":1,"emergency_releases_avoided":2},"clock":{"cve":"CVE-2020-14343","aware_at":"2026-09-26T15:53:29Z","early_warning_due":"2026-09-27T15:53:29Z","notification_due":"2026-09-29T15:53:29Z","final_report_due":"2026-10-10T15:53:29Z"},"findings":[{"cve":"CVE-2020-14343","package":"PyYAML","installed":"5.3.1","affected_range":"<5.4","fixed_version":"5.4","symbols":["full_load"],"status":"affected","justification":null,"evidence":[{"file":"demo_product/app.py","line":14,"function":"upload_config","call":"config.load_settings"},{"file":"demo_product/config.py","line":5,"function":"load_settings","call":"yaml.full_load"}],"reason":"yaml.full_load is reachable from route /upload-config via upload_config -> load_settings","advisory_source":"https://github.com/advisories/GHSA-8q59-q68h-6hv4","drafts":["out/drafts/early_warning_CVE-2020-14343.md","out/drafts/notification_CVE-2020-14343.md"]},{"cve":"CVE-2023-50447","package":"Pillow","installed":"9.5.0","affected_range":"<10.2.0","fixed_version":"10.2.0","symbols":["PIL.ImageMath.eval"],"status":"not_affected","justification":"vulnerable_code_not_in_execute_path","evidence":[],"reason":"No path from any entry point reaches PIL.ImageMath.eval","advisory_source":"https://github.com/advisories/GHSA-3f63-hfp8-52jq","drafts":[]},{"cve":"CVE-2024-22195","package":"Jinja2","installed":"3.1.2","affected_range":"<3.1.3","fixed_version":"3.1.3","symbols":["xmlattr"],"status":"not_affected","justification":"vulnerable_code_not_in_execute_path","evidence":[],"reason":"No path from any entry point reaches xmlattr","advisory_source":"https://github.com/advisories/GHSA-h5c8-rqwp-cp95","drafts":[]},{"cve":"CVE-2023-32681","package":"requests","installed":"2.30.0","affected_range":">=2.3.0,<2.31.0","fixed_version":"2.31.0","symbols":[],"status":"under_investigation","justification":null,"evidence":[],"reason":"Leak requires proxies configured at runtime; static analysis cannot prove absence","advisory_source":"https://github.com/advisories/GHSA-j8r2-6x86-q33q","drafts":[]}],"coverage":{"files_found":3,"files_parsed":3},"vex_path":"out/vex.json"};
 
+  // currentBase: folder prefix for relative paths stored in the dossier
+  var currentBase = '';
+  var currentFindings = [];
+
+  var SNAPSHOT_SOURCES = [
+    { url: '../out/dossier.json',      base: '../out/',      badge: 'live: out/dossier.json',    cls: 'live' },
+    { url: 'data/before/dossier.json', base: 'data/before/', badge: 'before: data/before',       cls: 'demo' },
+    { url: 'sample_dossier.json',      base: '../out/',      badge: 'demo: sample_dossier.json',  cls: 'demo' },
+  ];
+
+  function loadFromUrl(url, base, badgeText, badgeCls) {
+    var badge = document.getElementById('source-badge');
+    return fetch(url, {cache:'no-cache'})
+      .then(function(r){ if(!r.ok) throw new Error('not ok'); return r.json(); })
+      .then(function(d){ badge.textContent = badgeText; badge.className = badgeCls; currentBase = base; return d; });
+  }
+
   function loadData() {
     var badge = document.getElementById('source-badge');
-    // Try live out/dossier.json
-    return fetch('../out/dossier.json', {cache:'no-cache'})
-      .then(function(r){ if(!r.ok) throw new Error(); return r.json(); })
-      .then(function(d){ badge.textContent='● live: out/dossier.json'; badge.className='live'; return d; })
-      .catch(function(){
-        // Try sample
-        return fetch('./sample_dossier.json', {cache:'no-cache'})
-          .then(function(r){ if(!r.ok) throw new Error(); return r.json(); })
-          .then(function(d){ badge.textContent='● demo: sample_dossier.json'; badge.className='demo'; return d; })
-          .catch(function(){
-            badge.textContent='● embedded fallback'; badge.className='embed';
-            return Promise.resolve(EMBEDDED);
-          });
-      });
+    // Load order: out/dossier.json -> data/before -> sample_dossier.json -> embedded
+    var chain = SNAPSHOT_SOURCES.reduce(function(p, s) {
+      return p.catch(function(){ return loadFromUrl(s.url, s.base, s.badge, s.cls); });
+    }, Promise.reject(new Error('start')));
+    return chain.catch(function(){
+      badge.textContent = 'embedded fallback'; badge.className = 'embed';
+      currentBase = '../out/'; return EMBEDDED;
+    });
+  }
+
+  function rerender(d) {
+    timerIntervals.forEach(clearInterval); timerIntervals = [];
+    renderHeader(d); renderClock(d.clock); renderSummary(d.summary);
+    renderFindings(d.findings); renderDownloads(d);
+    requestAnimationFrame(function(){ setupAnimations(); });
+  }
+
+  function setupToggle() {
+    var btnBefore = document.getElementById('btn-before');
+    var btnAfter  = document.getElementById('btn-after');
+    if (!btnBefore || !btnAfter) return;
+    btnBefore.addEventListener('click', function() {
+      btnBefore.classList.add('active'); btnAfter.classList.remove('active');
+      loadFromUrl('data/before/dossier.json', 'data/before/', 'before: data/before', 'demo')
+        .then(rerender).catch(function(){ alert('data/before/dossier.json not found'); });
+    });
+    btnAfter.addEventListener('click', function() {
+      btnAfter.classList.add('active'); btnBefore.classList.remove('active');
+      loadFromUrl('data/after/dossier.json', 'data/after/', 'after: data/after', 'live')
+        .then(rerender).catch(function(){ alert('data/after/dossier.json not found'); });
+    });
   }
 
   function esc(s) {
@@ -441,9 +506,14 @@
       return;
     }
 
-    var metaHtml = '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;">'
+    var isFixed = currentFindings.some(function(f){ return f.cve === clock.cve && f.status === 'fixed'; });
+    var patchedNote = isFixed
+      ? '<span class="patched-note">\u2714 Patched. CRA reporting still due.</span>'
+      : '';
+    var metaHtml = '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;display:flex;align-items:center;flex-wrap:wrap;gap:6px;">'
       +'CVE: <strong style="color:var(--text);font-family:var(--font-mono)">'+esc(clock.cve)+'</strong>'
-      +' &nbsp;|&nbsp; Aware at: <span style="font-family:var(--font-mono)">'+fmtDate(clock.aware_at)+'</span></div>';
+      +' &nbsp;|&nbsp; Aware at: <span style="font-family:var(--font-mono)">'+fmtDate(clock.aware_at)+'</span>'
+      +patchedNote+'</div>';
     el.innerHTML = metaHtml + '<div class="cra-timers" id="cra-timers-grid"></div>';
 
     var grid = document.getElementById('cra-timers-grid');
@@ -553,8 +623,14 @@
       ? '<div class="drafts-row"><span>Draft reports:</span>'
         + f.drafts.map(function(p){
             var name = p.split('/').pop();
-            return '<a class="draft-link" href="../'+esc(p)+'">'+esc(name)+'</a>';
+            var href = currentBase + p;
+            return '<a class="draft-link" href="'+esc(href)+'">'+esc(name)+'</a>';
           }).join('') + '</div>'
+      : '';
+
+    // "Patched" note displayed next to badge for fixed findings
+    var patchedBadgeNote = f.status === 'fixed'
+      ? '<span class="patched-note">\u2714 Patched. CRA reporting still due.</span>'
       : '';
 
     return '<div class="finding-card status-'+esc(f.status)+'" style="transition-delay:'+idx*80+'ms">'
@@ -563,6 +639,7 @@
       +'<div class="finding-pkg"><strong>'+esc(f.package)+'</strong></div>'
       +'</div><div class="finding-header-right">'
       +'<span class="badge '+esc(f.status)+'"><span class="badge-dot"></span>'+statusLabel+'</span>'
+      +patchedBadgeNote
       +'</div></div>'
       +'<div class="finding-body">'
       +'<div class="version-row">'
@@ -577,7 +654,9 @@
       +'</div></div>';
   }
 
+  var currentFindings = [];
   function renderFindings(findings) {
+    currentFindings = findings;
     document.getElementById('findings-list').innerHTML =
       findings.map(function(f,i){ return renderFinding(f,i); }).join('');
   }
@@ -587,12 +666,12 @@
     var btns = [];
     var icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
     if (d.vex_path) {
-      btns.push('<a class="download-btn" href="../'+esc(d.vex_path)+'">'+icon+' vex.json</a>');
+      btns.push('<a class="download-btn" href="'+esc(currentBase + d.vex_path)+'">'+icon+' vex.json</a>');
     }
     d.findings.forEach(function(f){
       (f.drafts||[]).forEach(function(p){
         var name = p.split('/').pop();
-        btns.push('<a class="download-btn" href="../'+esc(p)+'">'+icon+' '+esc(name)+'</a>');
+        btns.push('<a class="download-btn" href="'+esc(currentBase + p)+'">'+icon+' '+esc(name)+'</a>');
       });
     });
     el.innerHTML = '<span class="downloads-label">Downloads</span>'+btns.join('');
@@ -635,6 +714,7 @@
     renderDownloads(d);
     renderCoverage(d.coverage);
     requestAnimationFrame(function(){ setupAnimations(); });
+    setupToggle();
   });
 
 })();

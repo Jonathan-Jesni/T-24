@@ -101,15 +101,23 @@ def render_notification(
     clock: CRAClock,
     product_name: str,
     drafts_dir: pathlib.Path,
+    baseline_evidence: list | None = None,
 ) -> pathlib.Path:
     """Render CRA Art. 14 §2 notification draft.
 
     Required by CRA Art. 14 §2: general info on product, the vulnerability and
     exploit, corrective measures taken or available, and sensitivity.
+
+    Parameters
+    ----------
+    baseline_evidence:  For fixed findings, evidence hops from the *before* scan
+                        that confirmed reachability.  Cited in corrective measures.
     """
     drafts_dir.mkdir(parents=True, exist_ok=True)
     evidence_text = _format_evidence(verdict)
     now_utc = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    corrective = _format_corrective_measures(verdict, baseline_evidence)
 
     content = _undent(f"""\
         {_BANNER}
@@ -143,9 +151,7 @@ def render_notification(
 
         ## 4. Corrective Measures
 
-        - Upgrade {verdict.package} to version {verdict.fixed_version} or later.
-        - Review all call sites that reach the vulnerable symbol.
-        - See advisory for workarounds: {verdict.advisory_source}
+        {corrective}
 
         ## 5. Information Sensitivity
 
@@ -180,4 +186,31 @@ def _format_evidence(verdict: VerdictResult) -> str:
         lines.append(
             f"{i}. `{hop.file}:{hop.line}` — `{hop.function}` calls `{hop.call}`"
         )
+    return "\n".join(lines)
+
+
+def _format_corrective_measures(
+    verdict: VerdictResult,
+    baseline_evidence: list | None,
+) -> str:
+    """Build the corrective-measures block.
+
+    For a *fixed* finding the section also describes the applied fix and
+    cites the baseline evidence path that confirmed earlier reachability.
+    """
+    lines = [
+        f"- Upgrade {verdict.package} to version {verdict.fixed_version} or later.",
+        f"- Review all call sites that reach the vulnerable symbol.",
+        f"- See advisory for workarounds: {verdict.advisory_source}",
+    ]
+    if verdict.status == "fixed":
+        lines.insert(0, f"- **FIX APPLIED:** {verdict.package} has been upgraded "
+                        f"to {verdict.fixed_version} (or later).")
+        if baseline_evidence:
+            ev_refs = "; ".join(
+                f"`{h['file']}:{h['line']}`" for h in baseline_evidence[:3]
+            )
+            lines.append(
+                f"- Baseline evidence confirming prior reachability: {ev_refs}"
+            )
     return "\n".join(lines)

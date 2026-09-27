@@ -1,0 +1,4 @@
+# Deploy only the static dossier page and its data; the Python engine is not a web app.
+/*
+!/dossier
+!/vercel.json

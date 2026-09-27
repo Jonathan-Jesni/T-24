@@ -1,4 +1,7 @@
 {
+  "framework": null,
+  "buildCommand": "",
+  "installCommand": "",
   "redirects": [
     { "source": "/", "destination": "/dossier/", "permanent": false }
   ]

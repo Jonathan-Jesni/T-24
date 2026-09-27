@@ -1,8 +1,5 @@
 {
-  "version": 2,
-  "routes": [
-    { "src": "/out/(.*)",      "dest": "/out/$1" },
-    { "src": "/dossier/(.*)",  "dest": "/dossier/$1" },
-    { "src": "/",              "dest": "/dossier/index.html" }
+  "redirects": [
+    { "source": "/", "destination": "/dossier/", "permanent": false }
   ]
 }
